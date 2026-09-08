@@ -53,6 +53,8 @@ systemctl --user show umbriel.service -p ExecStart
 
 ## 프리셋 전환과 복구
 
+로그인 화면은 별도입니다. `./glass greeter-sync`로 배경화면·팔레트·프로필 사진을 동기화할 수 있습니다. 관리자 인증·백업·복구 및 굴절/불투명도 지원 범위는 [GREETER.md](GREETER.md)를 참고하세요.
+
 Ghostty는 적용/복구 후 `Ctrl+Shift+,`로 설정을 다시 읽으세요. 이 프로젝트는 설정 마지막의 표시된 관리 블록만 바꾸고, 복구 시 그 블록만 제거합니다. 기존 설정과 나중에 바꾼 글꼴 등의 값은 보존합니다. [Ghostty 설정 문서](https://ghostty.org/docs/config/reference#background-opacity-cells)
 
 | 명령 | 용도 |

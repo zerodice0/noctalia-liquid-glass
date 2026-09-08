@@ -453,6 +453,8 @@ def main():
     commands.add_parser("restore")
     commands.add_parser("status")
     commands.add_parser("follow-mode")
+    commands.add_parser("greeter-sync")
+    commands.add_parser("greeter-status")
     args = parser.parse_args()
     theme = Theme()
     if args.command in ("apply", "plan"):
@@ -463,6 +465,12 @@ def main():
         theme.save(args.profile)
     elif args.command == "follow-mode":
         theme.follow_mode()
+    elif args.command == "greeter-sync":
+        from greeter_sync import sync
+        sync()
+    elif args.command == "greeter-status":
+        from greeter_sync import status
+        status()
     else:
         print(theme.active.read_text() if theme.active.exists() else "No managed theme active.")
 
