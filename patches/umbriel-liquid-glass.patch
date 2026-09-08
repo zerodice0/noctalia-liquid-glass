@@ -1,7 +1,7 @@
-diff --git i/src/config/config.cpp w/src/config/config.cpp
+diff --git a/src/config/config.cpp b/src/config/config.cpp
 index 05f01b5..7069468 100644
---- i/src/config/config.cpp
-+++ w/src/config/config.cpp
+--- a/src/config/config.cpp
++++ b/src/config/config.cpp
 @@ -854,7 +854,11 @@ namespace umbriel {
                .real("noise", 0.0, 1.0, appearance.blur.noise)
                .real("brightness", 0.0, 2.0, appearance.blur.brightness)
@@ -15,10 +15,10 @@ index 05f01b5..7069468 100644
          });
          s.sub("shadow", [&](Section& shadow) {
            shadow.boolean("enabled", appearance.shadow.enabled)
-diff --git i/src/config/config.h w/src/config/config.h
+diff --git a/src/config/config.h b/src/config/config.h
 index f545949..dbb9db3 100644
---- i/src/config/config.h
-+++ w/src/config/config.h
+--- a/src/config/config.h
++++ b/src/config/config.h
 @@ -432,6 +432,10 @@ namespace umbriel {
          double brightness = 0.9;
          double contrast = 0.9;
@@ -30,23 +30,72 @@ index f545949..dbb9db3 100644
          bool operator==(const Blur&) const = default;
        } blur;
        struct Shadow {
-diff --git i/src/core/build_info.cpp w/src/core/build_info.cpp
-index 9bf4a60..5cabf97 100644
---- i/src/core/build_info.cpp
-+++ w/src/core/build_info.cpp
+diff --git a/src/core/build_info.cpp b/src/core/build_info.cpp
+index 9bf4a60..efc7ee2 100644
+--- a/src/core/build_info.cpp
++++ b/src/core/build_info.cpp
 @@ -8,7 +8,7 @@
  
  namespace umbriel::build_info {
  
 -  std::string_view version() noexcept { return UMBRIEL_VERSION; }
-+  std::string_view version() noexcept { return UMBRIEL_VERSION "+liquid-glass.1"; }
++  std::string_view version() noexcept { return UMBRIEL_VERSION "+liquid-glass.2"; }
  
    std::string_view revision() noexcept { return UMBRIEL_GIT_REVISION; }
  
-diff --git i/src/server/server.cpp w/src/server/server.cpp
+diff --git a/src/overview/overview.cpp b/src/overview/overview.cpp
+index b1ec8e3..e44c56a 100644
+--- a/src/overview/overview.cpp
++++ b/src/overview/overview.cpp
+@@ -358,6 +358,20 @@ namespace umbriel {
+       const int top = rowTop(metrics, state.rowScroll, row);
+       const wlr_box full{metrics.rowX, top, metrics.rowW, metrics.rowH};
+       layoutWorkspaceBackground(background.fill, full, backgroundRadius, backgroundColor);
++      if (background.glass != nullptr) {
++        const bool enabled = config().appearance.blur.enabled && config().appearance.blur.glassStrength > 0.0;
++        wlr_scene_node_set_enabled(&background.glass->node, enabled);
++        wlr_scene_node_set_position(&background.glass->node, full.x, full.y);
++        wlr_scene_blur_set_size(background.glass, std::max(1, full.width), std::max(1, full.height));
++        wlr_scene_blur_set_corner_radius(background.glass, backgroundRadius);
++        wlr_scene_blur_set_alpha(background.glass, static_cast<float>(m_progress));
++        // Sample the row's mirrored wallpaper, then tint it; client cards stay
++        // above this tree and their text is never refracted by the row material.
++        if (enabled) {
++          wlr_scene_node_raise_to_top(&background.glass->node);
++          wlr_scene_node_raise_to_top(&background.fill->node);
++        }
++      }
+       if (background.mirrors.empty()) {
+         continue;
+       }
+@@ -665,6 +679,11 @@ namespace umbriel {
+     const std::array<float, 4> color = tint(config().colors.overview.workspaceBackground, m_progress);
+     background.fill = wlr_scene_rect_create(background.tree, 1, 1, color.data());
+     createRowMirrors(state, background);
++    background.glass = wlr_scene_blur_create(background.tree, 1, 1);
++    if (background.glass != nullptr) {
++      wlr_scene_blur_set_should_only_blur_bottom_layer(background.glass, false);
++      wlr_scene_node_set_enabled(&background.glass->node, false);
++    }
+     return background;
+   }
+ 
+diff --git a/src/overview/overview.h b/src/overview/overview.h
+index 5e1b046..7cd32ab 100644
+--- a/src/overview/overview.h
++++ b/src/overview/overview.h
+@@ -181,6 +181,7 @@ namespace umbriel {
+     struct WorkspaceBackground {
+       wlr_scene_tree* tree = nullptr;
+       wlr_scene_rect* fill = nullptr;
++      wlr_scene_blur* glass = nullptr;
+       std::vector<std::unique_ptr<DesktopMirror>> mirrors;
+     };
+ 
+diff --git a/src/server/server.cpp b/src/server/server.cpp
 index c94f832..3523bf4 100644
---- i/src/server/server.cpp
-+++ w/src/server/server.cpp
+--- a/src/server/server.cpp
++++ b/src/server/server.cpp
 @@ -392,6 +392,8 @@ namespace umbriel {
          static_cast<float>(blur.contrast), static_cast<float>(blur.saturation)
      );
@@ -56,10 +105,10 @@ index c94f832..3523bf4 100644
  
      // Global stacking keeps scratchpads above normal windows and below drag, panels, fullscreen, overlays, and lock.
      // Per-output layer trees keep normal windows below panels.
-diff --git i/src/server/server_events.cpp w/src/server/server_events.cpp
+diff --git a/src/server/server_events.cpp b/src/server/server_events.cpp
 index c89788b..0c8b16e 100644
---- i/src/server/server_events.cpp
-+++ w/src/server/server_events.cpp
+--- a/src/server/server_events.cpp
++++ b/src/server/server_events.cpp
 @@ -352,6 +352,8 @@ namespace umbriel {
  
      if (effects.sceneBlur) {
@@ -69,10 +118,10 @@ index c89788b..0c8b16e 100644
        wlr_scene_set_blur_data(
            m_scene, blur.passes, blur.radius, static_cast<float>(blur.noise), static_cast<float>(blur.brightness),
            static_cast<float>(blur.contrast), static_cast<float>(blur.saturation)
-diff --git i/umbrielfx/include/umbrielfx/render/pass.h w/umbrielfx/include/umbrielfx/render/pass.h
+diff --git a/umbrielfx/include/umbrielfx/render/pass.h b/umbrielfx/include/umbrielfx/render/pass.h
 index 7ed546a..d9f74ae 100644
---- i/umbrielfx/include/umbrielfx/render/pass.h
-+++ w/umbrielfx/include/umbrielfx/render/pass.h
+--- a/umbrielfx/include/umbrielfx/render/pass.h
++++ b/umbrielfx/include/umbrielfx/render/pass.h
 @@ -69,6 +69,10 @@ struct fx_render_texture_options {
  	// with the regular shader and no sampling clamp at all; only pass a box when
  	// the source box actually reaches texels outside it.
@@ -84,10 +133,10 @@ index 7ed546a..d9f74ae 100644
  };
  
  struct fx_render_rect_options {
-diff --git i/umbrielfx/include/umbrielfx/types/fx/blur_data.h w/umbrielfx/include/umbrielfx/types/fx/blur_data.h
+diff --git a/umbrielfx/include/umbrielfx/types/fx/blur_data.h b/umbrielfx/include/umbrielfx/types/fx/blur_data.h
 index 967c2a0..8b1fd4b 100644
---- i/umbrielfx/include/umbrielfx/types/fx/blur_data.h
-+++ w/umbrielfx/include/umbrielfx/types/fx/blur_data.h
+--- a/umbrielfx/include/umbrielfx/types/fx/blur_data.h
++++ b/umbrielfx/include/umbrielfx/types/fx/blur_data.h
 @@ -11,6 +11,10 @@ struct blur_data {
  	float brightness;
  	float contrast;
@@ -99,10 +148,10 @@ index 967c2a0..8b1fd4b 100644
  };
  
  struct blur_data blur_data_get_default(void);
-diff --git i/umbrielfx/include/umbrielfx/types/wlr_scene.h w/umbrielfx/include/umbrielfx/types/wlr_scene.h
+diff --git a/umbrielfx/include/umbrielfx/types/wlr_scene.h b/umbrielfx/include/umbrielfx/types/wlr_scene.h
 index 5650a4b..28ffd5f 100644
---- i/umbrielfx/include/umbrielfx/types/wlr_scene.h
-+++ w/umbrielfx/include/umbrielfx/types/wlr_scene.h
+--- a/umbrielfx/include/umbrielfx/types/wlr_scene.h
++++ b/umbrielfx/include/umbrielfx/types/wlr_scene.h
 @@ -464,6 +464,9 @@ struct wlr_scene *wlr_scene_create(void);
  
  
@@ -113,10 +162,10 @@ index 5650a4b..28ffd5f 100644
  void wlr_scene_set_blur_data(struct wlr_scene *scene, int num_passes,
  	int radius, float noise, float brightness, float contrast, float saturation);
  
-diff --git i/umbrielfx/internal/render/fx_renderer/shaders.h w/umbrielfx/internal/render/fx_renderer/shaders.h
+diff --git a/umbrielfx/internal/render/fx_renderer/shaders.h b/umbrielfx/internal/render/fx_renderer/shaders.h
 index 0a66fb1..2cf8bfd 100644
---- i/umbrielfx/internal/render/fx_renderer/shaders.h
-+++ w/umbrielfx/internal/render/fx_renderer/shaders.h
+--- a/umbrielfx/internal/render/fx_renderer/shaders.h
++++ b/umbrielfx/internal/render/fx_renderer/shaders.h
 @@ -130,6 +130,8 @@ bool link_quad_grad_round_program(struct quad_grad_round_shader *shader, int max
  
  struct tex_shader {
@@ -126,10 +175,10 @@ index 0a66fb1..2cf8bfd 100644
  	GLint proj;
  	GLint tex_proj;
  	GLint tex;
-diff --git i/umbrielfx/render/fx_renderer/fx_pass.c w/umbrielfx/render/fx_renderer/fx_pass.c
+diff --git a/umbrielfx/render/fx_renderer/fx_pass.c b/umbrielfx/render/fx_renderer/fx_pass.c
 index 2e79fa6..ffd5492 100644
---- i/umbrielfx/render/fx_renderer/fx_pass.c
-+++ w/umbrielfx/render/fx_renderer/fx_pass.c
+--- a/umbrielfx/render/fx_renderer/fx_pass.c
++++ b/umbrielfx/render/fx_renderer/fx_pass.c
 @@ -862,6 +862,37 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass *pass,
  
  	glUniform1i(shader->tex, 0);
@@ -179,10 +228,10 @@ index 2e79fa6..ffd5492 100644
  	tex_options->base.dst_box = (struct wlr_box) {
  		.x = 0,
  		.y = 0,
-diff --git i/umbrielfx/render/fx_renderer/shaders.c w/umbrielfx/render/fx_renderer/shaders.c
+diff --git a/umbrielfx/render/fx_renderer/shaders.c b/umbrielfx/render/fx_renderer/shaders.c
 index 5191684..8c045fb 100644
---- i/umbrielfx/render/fx_renderer/shaders.c
-+++ w/umbrielfx/render/fx_renderer/shaders.c
+--- a/umbrielfx/render/fx_renderer/shaders.c
++++ b/umbrielfx/render/fx_renderer/shaders.c
 @@ -279,8 +279,8 @@ bool link_quad_grad_round_program(struct quad_grad_round_shader *shader, int max
  
  bool link_tex_program(struct tex_shader *shader, enum fx_tex_shader_source source,
@@ -208,11 +257,11 @@ index 5191684..8c045fb 100644
  	shader->sample_bounds = sample_clamp
  		? glGetUniformLocation(prog, "sample_bounds")
  		: -1;
-diff --git i/umbrielfx/render/fx_renderer/shaders/tex.frag w/umbrielfx/render/fx_renderer/shaders/tex.frag
-index 7ef99d5..7fb0d5b 100644
---- i/umbrielfx/render/fx_renderer/shaders/tex.frag
-+++ w/umbrielfx/render/fx_renderer/shaders/tex.frag
-@@ -59,6 +59,83 @@ uniform float clip_radius_bottom_right;
+diff --git a/umbrielfx/render/fx_renderer/shaders/tex.frag b/umbrielfx/render/fx_renderer/shaders/tex.frag
+index 7ef99d5..5896fe6 100644
+--- a/umbrielfx/render/fx_renderer/shaders/tex.frag
++++ b/umbrielfx/render/fx_renderer/shaders/tex.frag
+@@ -59,6 +59,90 @@ uniform float clip_radius_bottom_right;
  
  uniform float discard_transparent;
  
@@ -226,23 +275,23 @@ index 7ef99d5..7fb0d5b 100644
 +uniform mat3 glass_mask_proj;
 +uniform float glass_mask_threshold;
 +
-+float glass_inside(vec2 pixel) {
++float glass_alpha(vec2 pixel) {
 +	vec2 local = (pixel - glass_box.xy) / max(glass_box.zw, vec2(1.0));
 +	if (local.x < 0.0 || local.y < 0.0 || local.x > 1.0 || local.y > 1.0) return 0.0;
 +	vec2 uv = (vec3(local, 1.0) * glass_mask_proj).xy;
-+	return step(glass_mask_threshold, texture2D(glass_mask, uv).a);
++	return texture2D(glass_mask, uv).a;
 +}
 +
 +// Locate the visible card edge rather than its layer-shell allocation (which
 +// includes transparent padding for dock magnification and panel shadows).
 +// Interior pixels need just four mask reads. Search only rays crossing an edge.
-+float glass_edge_distance(vec2 pixel, vec2 direction, float width) {
-+	if (glass_inside(pixel + direction * width) > 0.5) return width;
++float glass_edge_distance(vec2 pixel, vec2 direction, float width, float threshold) {
++	if (glass_alpha(pixel + direction * width) >= threshold) return width;
 +	float low = 0.0;
 +	float high = width;
 +	for (int i = 0; i < 6; ++i) {
 +		float middle = (low + high) * 0.5;
-+		if (glass_inside(pixel + direction * middle) > 0.5) low = middle;
++		if (glass_alpha(pixel + direction * middle) >= threshold) low = middle;
 +		else high = middle;
 +	}
 +	return (low + high) * 0.5;
@@ -263,10 +312,17 @@ index 7ef99d5..7fb0d5b 100644
 +	else normal = q.x > q.y ? vec2(sign(center.x), 0.0) : vec2(0.0, sign(center.y));
 +	float width = min(glass_params.y, min(half_size.x, half_size.y));
 +	if (glass_mask_threshold > 0.0) {
-+		float left = glass_edge_distance(p, vec2(-1.0, 0.0), width);
-+		float right = glass_edge_distance(p, vec2(1.0, 0.0), width);
-+		float top = glass_edge_distance(p, vec2(0.0, -1.0), width);
-+		float bottom = glass_edge_distance(p, vec2(0.0, 1.0), width);
++		// Translucent nested cards encode a higher alpha than their parent.
++		// Follow downward alpha steps, ignoring opaque text/icons encountered
++		// along a ray. Client pixels themselves still use the unmodified path.
++		float material_alpha = glass_alpha(p);
++		float threshold = glass_mask_threshold;
++		if (material_alpha < 0.82)
++			threshold = max(threshold, material_alpha - 0.07);
++		float left = glass_edge_distance(p, vec2(-1.0, 0.0), width, threshold);
++		float right = glass_edge_distance(p, vec2(1.0, 0.0), width, threshold);
++		float top = glass_edge_distance(p, vec2(0.0, -1.0), width, threshold);
++		float bottom = glass_edge_distance(p, vec2(0.0, 1.0), width, threshold);
 +		vec4 weight = vec4(1.0) - vec4(left, right, top, bottom) / width;
 +		weight *= weight;
 +		vec2 gradient = vec2(weight.y - weight.x, weight.w - weight.z);
@@ -296,7 +352,7 @@ index 7ef99d5..7fb0d5b 100644
  #if SAMPLE_CLAMP
  // Normalized texel range the fragment may sample: xy is the first sampled texel
  // center, zw the last. A cropped surface whose crop edge falls between texels
-@@ -75,6 +152,7 @@ uniform vec4 sample_bounds;
+@@ -75,6 +159,7 @@ uniform vec4 sample_bounds;
  #endif
  
  vec4 sample_texture() {
@@ -304,10 +360,10 @@ index 7ef99d5..7fb0d5b 100644
  #if SOURCE == SOURCE_TEXTURE_RGBA || SOURCE == SOURCE_TEXTURE_EXTERNAL
  	return texture2D(tex, SAMPLE_UV);
  #elif SOURCE == SOURCE_TEXTURE_RGBX
-diff --git i/umbrielfx/types/fx/blur_data.c w/umbrielfx/types/fx/blur_data.c
+diff --git a/umbrielfx/types/fx/blur_data.c b/umbrielfx/types/fx/blur_data.c
 index 571f47f..ba9f3da 100644
---- i/umbrielfx/types/fx/blur_data.c
-+++ w/umbrielfx/types/fx/blur_data.c
+--- a/umbrielfx/types/fx/blur_data.c
++++ b/umbrielfx/types/fx/blur_data.c
 @@ -23,7 +23,9 @@ bool blur_data_should_parameters_blur_effects(struct blur_data *blur_data) {
  }
  
@@ -324,10 +380,10 @@ index 571f47f..ba9f3da 100644
  	return blur_data;
  }
 -
-diff --git i/umbrielfx/types/scene/wlr_scene.c w/umbrielfx/types/scene/wlr_scene.c
+diff --git a/umbrielfx/types/scene/wlr_scene.c b/umbrielfx/types/scene/wlr_scene.c
 index bb6cfeb..df90c7b 100644
---- i/umbrielfx/types/scene/wlr_scene.c
-+++ w/umbrielfx/types/scene/wlr_scene.c
+--- a/umbrielfx/types/scene/wlr_scene.c
++++ b/umbrielfx/types/scene/wlr_scene.c
 @@ -1418,6 +1418,21 @@ void wlr_scene_blur_set_clipped_region(struct wlr_scene_blur *blur,
  	scene_node_update(&blur->node, NULL);
  }

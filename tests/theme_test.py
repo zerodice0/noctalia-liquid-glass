@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import importlib.util
+import json
 import os
 from pathlib import Path
 import tempfile
@@ -29,6 +30,8 @@ class ThemeTests(unittest.TestCase):
                 theme = module.Theme()
                 self.assertEqual(theme.settings, temp / "state/noctalia/settings.toml")
                 theme.binary = ROOT / ".build/umbriel/build/umbriel"
+                theme.shell_binary = ROOT / ".build/noctalia-diagnose/build/noctalia"
+                theme.shell_launcher = temp / "bin/noctalia-liquid-glass"
                 theme.launcher = temp / "bin/umbriel-liquid-glass"
                 theme.ghostty.parent.mkdir(parents=True)
                 ghost_original = '# Preserve Ghostty\nbackground-opacity = 0.8\nfont-size = 10\n'
@@ -41,6 +44,9 @@ class ThemeTests(unittest.TestCase):
                 self.assertFalse(theme.baseline.exists())
                 self.assertEqual(theme.ghostty.read_text(), ghost_original)
                 theme.apply("desktop")
+                self.assertIn("liquid_glass", module.read_toml(theme.settings)["theme"]["templates"]["user"])
+                self.assertTrue(theme.material_template.exists())
+                self.assertEqual(module.resolve_umbriel(theme.overlay)["colors"]["background"][-2:], "47")
                 self.assertIn("background-opacity = 0.68", theme.ghostty.read_text())
                 window_rules = module.resolve_umbriel(theme.overlay)["window_rule"]
                 self.assertEqual(window_rules[0]["opacity"], 0.92)
@@ -74,6 +80,9 @@ class ThemeTests(unittest.TestCase):
                 self.assertEqual(base.read_text(), base_text)
                 self.assertFalse(theme.launcher.exists())
                 self.assertFalse(theme.service.exists())
+                self.assertFalse(theme.shell_launcher.exists())
+                self.assertFalse(theme.material_colors.exists())
+                self.assertFalse(theme.material_template.exists())
                 self.assertFalse(theme.baseline.exists())
                 self.assertEqual(module.resolve_umbriel(theme.overlay)["layer_rule"], rules[:1])
 
@@ -88,13 +97,41 @@ class ThemeTests(unittest.TestCase):
             self.assertEqual(target.read_text(), "new")
 
     def test_profiles_contain_no_machine_configuration(self):
-        for name in ("desktop", "gpd", "frosted", "original"):
+        for file in (ROOT / "profiles").glob("*.toml"):
+            name = file.stem
             data = module.profile(name)
             self.assertNotIn("output", data["umbriel"])
             self.assertNotIn("input", data["umbriel"])
             self.assertNotIn("keybinds", data["umbriel"])
             self.assertNotIn("wallpaper", data["noctalia"])
             self.assertNotIn("plugins", data["noctalia"])
+
+    def test_approved_dark_opacity(self):
+        data = module.profile("dark")
+        self.assertEqual(data["noctalia"]["theme"]["mode"], "dark")
+        self.assertEqual(data["noctalia"]["bar"]["default"]["background_opacity"], 0.22)
+        self.assertEqual(data["noctalia"]["dock"]["background_opacity"], 0.20)
+        self.assertEqual(data["noctalia"]["shell"]["panel"]["glass_background_opacity"], 0.20)
+        self.assertEqual(data["noctalia"]["shell"]["panel"]["glass_card_opacity"], 0.16)
+        self.assertEqual(data["apps"]["ghostty"]["background_opacity"], 0.55)
+        self.assertEqual(data["umbriel"]["window_rule"][0]["opacity"], 1.0)
+
+    def test_follow_mode_preserves_auto_and_stops_when_matched(self):
+        with tempfile.TemporaryDirectory() as directory:
+            theme = module.Theme()
+            theme.active = Path(directory) / "active.json"
+            for family, current, target in (("desktop", "light", "dark"),
+                                             ("gpd", "gpd-light", "gpd-dark"),
+                                             ("frosted", "frosted-light", "frosted-dark")):
+                theme.active.write_text(json.dumps({"profile": current}))
+                with patch.object(module.subprocess, "check_output", side_effect=["dark\n", '[theme]\nmode = "auto"\n']), patch.object(theme, "apply") as apply:
+                    theme.follow_mode()
+                    apply.assert_called_once_with(target, configured_mode="auto")
+                theme.active.write_text(json.dumps({"profile": target}))
+                with patch.object(module.subprocess, "check_output", return_value="dark\n") as command, patch.object(theme, "apply") as apply:
+                    theme.follow_mode()
+                    command.assert_called_once()
+                    apply.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,36 @@
+extends = "desktop"
+mode_family = "desktop"
+mode_variant = "dark"
+
+[noctalia.theme]
+mode = "dark"
+shell_mode = "follow"
+
+[noctalia.shell.panel]
+glass_background_opacity = 0.20
+glass_card_opacity = 0.16
+
+[noctalia.bar.default]
+background_opacity = 0.22
+border = "#DFE9FF66"
+
+[noctalia.dock]
+background_opacity = 0.20
+border = "#DFE9FF77"
+
+[noctalia.notification]
+background_opacity = 0.45
+
+[noctalia.osd]
+background_opacity = 0.40
+
+[apps.ghostty]
+background_opacity = 0.55
+
+[material]
+background_opacity = 0.20
+overview_tint_opacity = 0.06
+workspace_opacity = 0.16
+
+[umbriel.appearance.blur]
+glass_highlight = 0.22

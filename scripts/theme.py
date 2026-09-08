@@ -144,6 +144,10 @@ class Theme:
         data = Path(os.environ.get("XDG_DATA_HOME", home / ".local/share"))
         self.prefix = Path(os.environ.get("GLASS_PREFIX", data / "noctalia-liquid-glass/runtime"))
         self.binary = self.prefix / "bin/umbriel"
+        self.shell_binary = self.prefix / "bin/noctalia"
+        self.shell_launcher = home / ".local/bin/noctalia-liquid-glass"
+        self.material_colors = self.config / "noctalia-liquid-glass/colors.toml"
+        self.material_template = self.config / "noctalia-liquid-glass/colors.template.toml"
         self.launcher = home / ".local/bin/umbriel-liquid-glass"
         self.service = self.config / "systemd/user/umbriel.service.d/90-liquid-glass.conf"
         self.active = self.state / "active.json"
@@ -152,8 +156,21 @@ class Theme:
         if not self.ghostty.exists():
             self.ghostty = self.config / "ghostty/config"
 
-    def candidates(self, name):
+    def candidates(self, name, configured_mode=None):
         selected = profile(name)
+        if configured_mode is not None:
+            selected["noctalia"].setdefault("theme", {})["mode"] = configured_mode
+        extra_writes = {}
+        if "material" in selected:
+            template, colors = self.material(selected["material"])
+            extra_writes[self.material_template] = template
+            extra_writes[self.material_colors] = colors
+            template_config = {"enabled": True, "input_path": str(self.material_template),
+                               "output_path": str(self.material_colors)}
+            if "mode_family" in selected:
+                template_config["post_hook"] = shlex.quote(str(REPO / "glass")) + " follow-mode"
+            put(selected["noctalia"], ("theme", "templates", "user", "liquid_glass"),
+                {"exists": True, "value": template_config})
         settings = read_toml(self.settings)
         if self.baseline.exists():
             for item in json.loads(self.baseline.read_text())["keys"]:
@@ -170,6 +187,14 @@ class Theme:
         if "window_defaults" in selected:
             compositor["window_rule"] = [selected["window_defaults"]] + compositor.get("window_rule", base.get("window_rule", []))
         compositor["include"] = {"files": [str(self.base)]}
+        if "material" in selected:
+            compositor["include"]["files"].append(str(self.material_colors))
+        # Replace only the known standalone shell autostart, preserving all
+        # other machine commands. IPC calls keep using the packaged CLI.
+        starts = base.get("general", {}).get("autostart", [])
+        if "noctalia" in starts:
+            compositor.setdefault("general", {})["autostart"] = [
+                shlex.quote(str(self.shell_launcher)) if command == "noctalia" else command for command in starts]
         launcher = ("#!/bin/sh\n"
                     f"binary={shlex.quote(str(self.binary))}\n"
                     f"config={shlex.quote(str(self.overlay))}\n"
@@ -185,6 +210,11 @@ class Theme:
             self.overlay: tomlkit.dumps(compositor),
             self.launcher: launcher,
             self.service: service,
+            self.shell_launcher: ("#!/bin/sh\n"
+                f"if [ -x {shlex.quote(str(self.shell_binary))} ]; then\n"
+                f"  exec {shlex.quote(str(self.shell_binary))} \"$@\"\nfi\n"
+                'exec /usr/bin/noctalia "$@"\n'),
+            **extra_writes,
         }
         if self.ghostty.exists():
             content = ghostty_unmanaged(self.ghostty.read_text())
@@ -200,15 +230,50 @@ class Theme:
                 writes[self.ghostty] = content
         return selected, writes
 
+    def material(self, material):
+        # Preserve dynamic RGB synchronization, override alpha only. The
+        # generated template has its OWN output, so it cannot race the stock
+        # or user Umbriel templates writing umbriel/noctalia.toml.
+        specs = {
+            ("background",): ("surface_container", "background_opacity", "#202028"),
+            ("border", "focused"): ("primary", "border_opacity", "#B9C3FF"),
+            ("border", "unfocused"): ("outline", "border_opacity", "#90909A"),
+            ("border", "outer"): ("on_surface", "outer_border_opacity", "#E3E1E9"),
+            ("overview", "background_tint"): ("surface", "overview_tint_opacity", "#121318"),
+            ("overview", "workspace_background"): ("surface_container", "workspace_opacity", "#202028"),
+        }
+        source = resolve_umbriel(self.base).get("colors", {})
+        template, initial = {}, {}
+        for path, (role, alpha_key, fallback) in specs.items():
+            alpha = float(material[alpha_key])
+            if not 0.0 <= alpha <= 1.0:
+                raise ValueError(f"Invalid material opacity: {alpha_key}")
+            suffix = f"{round(alpha * 255):02X}"
+            existing = get(source, path)
+            rgb = str(existing.get("value", fallback))[:7]
+            put(initial, ("colors", *path), {"exists": True, "value": rgb + suffix})
+            put(template, ("colors", *path), {"exists": True,
+                "value": "#{{colors." + role + ".default.hex_stripped}}" + suffix})
+        return tomlkit.dumps(template), tomlkit.dumps(initial)
+
     def validate(self, writes):
         if not self.binary.exists():
             raise ValueError(f"Install the built runtime first: {self.binary}")
+        if not self.shell_binary.exists():
+            raise ValueError(f"Install the patched Noctalia runtime first: {self.shell_binary}")
         with tempfile.TemporaryDirectory(prefix="glass-validate-") as temp:
             settings = Path(temp) / "noctalia.toml"
             compositor = Path(temp) / "umbriel.toml"
             settings.write_text(writes[self.settings])
-            compositor.write_text(writes[self.overlay])
-            subprocess.run(["noctalia", "config", "validate", str(settings)], check=True)
+            overlay_text = writes[self.overlay]
+            if self.material_colors in writes:
+                color_file = Path(temp) / "colors.toml"
+                color_file.write_text(writes[self.material_colors])
+                overlay_doc = tomlkit.parse(overlay_text)
+                overlay_doc["include"]["files"] = [str(color_file) if p == str(self.material_colors) else p for p in overlay_doc["include"]["files"]]
+                overlay_text = tomlkit.dumps(overlay_doc)
+            compositor.write_text(overlay_text)
+            subprocess.run([str(self.shell_binary), "config", "validate", str(settings)], check=True)
             subprocess.run([str(self.binary), "validate", "-c", str(compositor)], check=True)
         if self.ghostty in writes:
             # Same directory preserves relative config-file includes.
@@ -228,8 +293,8 @@ class Theme:
         print(f"Local backup: {folder}")
         return folder, records
 
-    def apply(self, name, dry_run=False):
-        selected, writes = self.candidates(name)
+    def apply(self, name, dry_run=False, configured_mode=None):
+        selected, writes = self.candidates(name, configured_mode)
         self.validate(writes)
         print(f"Profile: {name}")
         for path in writes:
@@ -244,21 +309,29 @@ class Theme:
             paths = set()
             for standard in ("desktop", "gpd", "frosted", name):
                 paths.update(path for path, _ in leaves(profile(standard)["noctalia"]))
+            paths.update(path for path, _ in leaves(selected["noctalia"]))
             baseline = {"settings": str(self.settings),
                         "keys": [{"path": list(path), "before": get(original, path)} for path in sorted(paths)],
                         "files": {key: value for key, value in records.items() if key not in (str(self.settings), str(self.ghostty))}}
         else:
             baseline = json.loads(self.baseline.read_text())
             known = {tuple(item["path"]) for item in baseline["keys"]}
-            if any(path not in known for path, _ in leaves(selected["noctalia"])):
-                raise ValueError("New profile controls additional keys. Restore the baseline first, then apply it.")
+            # Migrate older installations: snapshot newly managed fields before
+            # their first write, without replacing the original baseline.
+            original = read_toml(self.settings)
+            for path, _ in leaves(selected["noctalia"]):
+                if path not in known:
+                    baseline["keys"].append({"path": list(path), "before": get(original, path)})
+            for path, record in records.items():
+                if path not in (str(self.settings), str(self.ghostty)):
+                    baseline["files"].setdefault(path, record)
         if self.ghostty in writes:
             baseline.setdefault("ghostty_config", str(self.ghostty))
         atomic(self.baseline, json.dumps(baseline, indent=2))
         # Roll back all files on a write failure; keep the backup for inspection.
         try:
             for path, content in writes.items():
-                atomic(path, content, 0o755 if path == self.launcher else 0o600)
+                atomic(path, content, 0o755 if path in (self.launcher, self.shell_launcher) else 0o600)
         except Exception:
             self.restore_files(records)
             raise
@@ -267,6 +340,22 @@ class Theme:
         self.reload()
         print("Appearance applied. Patched compositor is selected for the next Umbriel login.")
         print("No running compositor or applications were restarted.")
+
+    def follow_mode(self):
+        if not self.active.exists():
+            return
+        current = profile(json.loads(self.active.read_text())["profile"])
+        family = current.get("mode_family")
+        if family not in ("desktop", "gpd", "frosted"):
+            return
+        mode = subprocess.check_output([str(self.shell_binary), "msg", "theme-mode-get"], text=True).strip()
+        if mode not in ("light", "dark") or current.get("mode_variant") == mode:
+            return
+        target = mode if family == "desktop" else f"{family}-{mode}"
+        effective = tomlkit.parse(subprocess.check_output([str(self.shell_binary), "config", "export", "full"], text=True))
+        # Keep automatic scheduling automatic; don't pin auto to its current
+        # resolved mode. A second post-hook sees the matching variant and stops.
+        self.apply(target, configured_mode=effective["theme"]["mode"])
 
     @staticmethod
     def restore_files(records):
@@ -332,6 +421,8 @@ class Theme:
         # Reuse only portable managed rules, never export machine rules.
         if self.active.exists():
             active_profile = profile(json.loads(self.active.read_text())["profile"])
+            if "material" in active_profile:
+                data["material"] = active_profile["material"]
             if "window_defaults" in active_profile:
                 data["window_defaults"] = active_profile["window_defaults"]
             for kind in ("window_rule", "layer_rule"):
@@ -361,6 +452,7 @@ def main():
         sub.add_argument("profile")
     commands.add_parser("restore")
     commands.add_parser("status")
+    commands.add_parser("follow-mode")
     args = parser.parse_args()
     theme = Theme()
     if args.command in ("apply", "plan"):
@@ -369,6 +461,8 @@ def main():
         theme.restore()
     elif args.command == "save":
         theme.save(args.profile)
+    elif args.command == "follow-mode":
+        theme.follow_mode()
     else:
         print(theme.active.read_text() if theme.active.exists() else "No managed theme active.")
 

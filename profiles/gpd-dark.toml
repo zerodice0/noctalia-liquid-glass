@@ -1,19 +1,5 @@
-# Inherits desktop layout. Cached wallpaper blur reduces live-scene work.
-extends = "desktop"
-
-[apps.ghostty]
-background_opacity = 0.76
-
-[noctalia.shell.panel]
-glass_background_opacity = 0.34
-glass_card_opacity = 0.28
-
-[material]
-background_opacity = 0.34
-workspace_opacity = 0.28
-
-[window_defaults]
-blur_optimized = true
+extends = "dark"
+mode_family = "gpd"
 
 [noctalia.dock]
 icon_size = 36
@@ -29,8 +15,11 @@ glass_edge = 32.0
 glass_dispersion = 0.0
 glass_highlight = 0.16
 
+[window_defaults]
+blur_optimized = true
+
 [[umbriel.layer_rule]]
 match.namespace = '^noctalia-(bar-.*|notification|dock|panel|attached-panel|osd|desktop-widget-.*)$'
 blur = true
-blur_ignore_alpha = 0.20
+blur_ignore_alpha = 0.12
 blur_optimized = true

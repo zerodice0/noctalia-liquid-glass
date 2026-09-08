@@ -1,6 +1,11 @@
 Umbriel (https://github.com/noctalia-dev/umbriel), pinned in upstream.json,
 is Copyright (c) 2026 Noctalia, MIT licensed.
 
+Noctalia (https://github.com/noctalia-dev/noctalia), pinned in
+noctalia-upstream.json, is Copyright (c) 2026 Noctalia, MIT licensed.
+patches/noctalia-liquid-glass.patch modifies its shell and configuration.
+Its applicable MIT permission and warranty notice is reproduced in LICENSE.
+
 patches/umbriel-liquid-glass.patch modifies Umbriel and its vendored
 umbrielfx renderer. tests/glass_client.cpp is derived from Umbriel's
 tests/harness/clients/layer_client.cpp. The applicable MIT license is

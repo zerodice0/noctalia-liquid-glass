@@ -1,0 +1,7 @@
+extends = "light"
+mode_family = "frosted"
+
+[umbriel.appearance.blur]
+glass_strength = 0.0
+glass_dispersion = 0.0
+glass_highlight = 0.0

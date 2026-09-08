@@ -10,6 +10,8 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+SHELL = str(ROOT / ".build/noctalia-diagnose/build/noctalia")
+PROFILE = os.environ.get("GLASS_TEST_PROFILE", "light")
 if "--private-bus" not in sys.argv:
     # The bus activation environment must also be isolated (e.g. dconf).
     with tempfile.TemporaryDirectory(prefix="glass-bus-") as bus_directory:
@@ -53,7 +55,7 @@ glass_highlight = 0.22
 [[layer_rule]]
 match.namespace = "^noctalia-.*$"
 blur = true
-blur_ignore_alpha = 0.2
+blur_ignore_alpha = 0.12
 blur_optimized = false
 ''')
     shell_config = Path(env["NOCTALIA_CONFIG_HOME"]) / "noctalia"
@@ -81,8 +83,8 @@ enable_daemon = false
 auto_locate = false
 ''')
     theme = subprocess.check_output([str(ROOT / ".venv/bin/python"), "-c",
-        'import tomlkit,sys; print(tomlkit.dumps(tomlkit.load(open(sys.argv[1]))["noctalia"].unwrap()))',
-        str(ROOT / "profiles/desktop.toml")], text=True)
+        'import tomlkit,sys; sys.path.insert(0,sys.argv[1]); from theme import profile; print(tomlkit.dumps(profile(sys.argv[2])["noctalia"]))',
+        str(ROOT / "scripts"), PROFILE], text=True)
     combined = subprocess.check_output([str(ROOT / ".venv/bin/python"), "-c",
         'import sys,tomlkit; sys.path.insert(0,sys.argv[1]); from theme import merge; '
         'base=tomlkit.load(open(sys.argv[2])).unwrap(); '
@@ -90,7 +92,7 @@ auto_locate = false
         str(ROOT / "scripts"), str(shell_config / "00-base.toml")], input=theme, text=True)
     (shell_config / "00-base.toml").unlink()
     (shell_config / "config.toml").write_text(combined)
-    subprocess.run(["noctalia", "config", "validate"], env=env, check=True)
+    subprocess.run([SHELL, "config", "validate"], env=env, check=True)
     processes = []
     handles = []
     def spawn(command, name):
@@ -100,8 +102,8 @@ auto_locate = false
         processes.append(proc)
         return proc
     binary = ROOT / ".build/umbriel/build/umbriel"
-    artifacts = ROOT / "artifacts"
-    artifacts.mkdir(exist_ok=True)
+    artifacts = ROOT / "artifacts" / PROFILE
+    artifacts.mkdir(exist_ok=True, parents=True)
     try:
         server = spawn([str(binary), "-c", str(config)], "shell-compositor")
         for _ in range(100):
@@ -110,19 +112,54 @@ auto_locate = false
             assert server.poll() is None, "Compositor exited"
             time.sleep(0.05)
         env.update(WAYLAND_DISPLAY="wayland-0", UMBRIEL_SOCKET=str(temp / "umbriel-wayland-0.sock"))
+        spawn(["wtype", "-s", "30000"], "keyboard-holder")
+        time.sleep(0.1)
         spawn([str(ROOT / ".build/tests/glass-client"), "HEADLESS-1", "0"], "shell-background")
-        shell = spawn(["noctalia"], "noctalia")
+        shell = spawn([SHELL], "noctalia")
         for _ in range(150):
             assert shell.poll() is None, "Noctalia exited"
-            status = subprocess.run(["noctalia", "msg", "status"], env=env, text=True, capture_output=True)
+            status = subprocess.run([SHELL, "msg", "status"], env=env, text=True, capture_output=True)
             if status.returncode == 0:
                 break
             time.sleep(0.1)
         else:
             raise AssertionError("Noctalia startup timeout")
-        subprocess.run(["noctalia", "msg", "panel-open", "launcher"], env=env, check=True, capture_output=True)
+        # Regression: floating Control Center must acquire keyboard focus on
+        # every open, without a pointer click. Previously Down was ignored.
+        from PIL import Image, ImageChops
+        for cycle in range(2):
+            subprocess.run([SHELL, "msg", "panel-open", "control-center"], env=env, check=True, capture_output=True)
+            time.sleep(0.5)
+            home = artifacts / f"control-home-{cycle}.png"
+            moved = artifacts / f"control-audio-{cycle}.png"
+            subprocess.run(["grim", str(home)], env=env, check=True)
+            subprocess.run(["wtype", "-k", "Down", "-s", "100", "-k", "Down"], env=env, check=True)
+            time.sleep(0.5)
+            subprocess.run(["grim", str(moved)], env=env, check=True)
+            diff = ImageChops.difference(Image.open(home).convert("RGB"), Image.open(moved).convert("RGB")).crop((342,48,936,568))
+            assert sum(any(v) for v in diff.get_flattened_data()) > 5000, "Floating dashboard did not navigate"
+            subprocess.run(["wtype", "-k", "Escape"], env=env, check=True)
+            for _ in range(20):
+                time.sleep(0.1)
+                if not json.loads(subprocess.check_output([SHELL, "msg", "status"], env=env))["panelOpen"]:
+                    break
+            else:
+                raise AssertionError("Escape did not close the dashboard")
+        subprocess.run([SHELL, "msg", "panel-open", "control-center"], env=env, check=True, capture_output=True)
+        time.sleep(0.5)
+        subprocess.run(["grim", str(artifacts / "control-glass.png")], env=env, check=True)
+        config.write_text(config.read_text().replace("glass_strength = 38.0", "glass_strength = 0.0"))
+        subprocess.run([str(binary), "msg", "config-reload"], env=env, check=True, capture_output=True)
+        time.sleep(0.3)
+        subprocess.run(["grim", str(artifacts / "control-frosted.png")], env=env, check=True)
+        # Interior cards, excluding the outer panel rim and the sidebar.
+        diff = ImageChops.difference(Image.open(artifacts / "control-glass.png").convert("RGB"), Image.open(artifacts / "control-frosted.png").convert("RGB")).crop((435,115,915,545))
+        assert sum(any(v) for v in diff.get_flattened_data()) > 1000, "No internal card refraction"
+        config.write_text(config.read_text().replace("glass_strength = 0.0", "glass_strength = 38.0"))
+        subprocess.run([str(binary), "msg", "config-reload"], env=env, check=True, capture_output=True)
+        subprocess.run([SHELL, "msg", "panel-open", "launcher"], env=env, check=True, capture_output=True)
         time.sleep(1.0)
-        state = json.loads(subprocess.check_output(["noctalia", "msg", "status"], env=env, text=True))
+        state = json.loads(subprocess.check_output([SHELL, "msg", "status"], env=env, text=True))
         assert state["activePanelId"] == "launcher", state
         subprocess.run(["grim", str(artifacts / "noctalia-glass.png")], env=env, check=True)
         # Capture the identical live shell with refraction disabled for comparison.
@@ -134,7 +171,7 @@ auto_locate = false
         assert "Could not link" not in log and "GL_INVALID" not in log, log
         shell_log = (temp / "noctalia.log").read_text()
         assert "no config files found" not in shell_log and "dock disabled in config" not in shell_log, shell_log
-        print("PASS: real Noctalia bar, dock and launcher on a private Wayland/D-Bus session")
+        print("PASS: floating dashboard keyboard/reopen/Escape, internal card refraction, bar/dock/launcher")
     finally:
         for process in reversed(processes):
             if process.poll() is None:

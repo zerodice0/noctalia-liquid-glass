@@ -1,0 +1,80 @@
+diff --git a/src/config/config_types.h b/src/config/config_types.h
+index c75321a..12b9e3d 100644
+--- a/src/config/config_types.h
++++ b/src/config/config_types.h
+@@ -961,6 +961,8 @@ struct ShellConfig {
+ 
+   struct PanelConfig {
+     PanelTransparencyMode transparencyMode = PanelTransparencyMode::Solid;
++    float glassBackgroundOpacity = -1.0F; // -1 keeps the upstream material
++    float glassCardOpacity = -1.0F;
+     bool borders = true;                   // outline on floating panel surfaces
+     bool shadow = true;                    // cast the global [shell.shadow] from panel surfaces
+     bool listItemBackground = false;       // filled rounded background behind launcher/clipboard list items
+diff --git a/src/config/schema/config_schema.cpp b/src/config/schema/config_schema.cpp
+index 95809f9..98faef6 100644
+--- a/src/config/schema/config_schema.cpp
++++ b/src/config/schema/config_schema.cpp
+@@ -1311,6 +1311,8 @@ namespace noctalia::config::schema {
+     const Schema<ShellConfig::PanelConfig>& shellPanelSchema() {
+       static const Schema<ShellConfig::PanelConfig> s = {
+           enumField(&ShellConfig::PanelConfig::transparencyMode, "transparency_mode", kPanelTransparencyModes),
++          field(&ShellConfig::PanelConfig::glassBackgroundOpacity, "glass_background_opacity", Range<float>{-1.0F, 1.0F}),
++          field(&ShellConfig::PanelConfig::glassCardOpacity, "glass_card_opacity", Range<float>{-1.0F, 1.0F}),
+           field(&ShellConfig::PanelConfig::borders, "borders"),
+           field(&ShellConfig::PanelConfig::shadow, "shadow"),
+           field(&ShellConfig::PanelConfig::listItemBackground, "list_item_background"),
+diff --git a/src/core/build_info.cpp b/src/core/build_info.cpp
+index 7b976ac..576a50a 100644
+--- a/src/core/build_info.cpp
++++ b/src/core/build_info.cpp
+@@ -4,7 +4,7 @@
+ 
+ namespace noctalia::build_info {
+ 
+-  std::string_view version() noexcept { return NOCTALIA_VERSION; }
++  std::string_view version() noexcept { return NOCTALIA_VERSION "+liquid-glass.2"; }
+ 
+   std::string_view revision() noexcept { return NOCTALIA_GIT_REVISION; }
+ 
+diff --git a/src/shell/control_center/control_center_panel.h b/src/shell/control_center/control_center_panel.h
+index 42740a7..541c72d 100644
+--- a/src/shell/control_center/control_center_panel.h
++++ b/src/shell/control_center/control_center_panel.h
+@@ -79,6 +79,9 @@ public:
+   [[nodiscard]] static std::vector<TabCatalogEntry> hideableTabCatalog();
+ 
+   void create() override;
++  // IPC/keyboard opens must acquire the seat even on compositors without
++  // a focus-grab protocol. Match the launcher's existing policy.
++  [[nodiscard]] LayerShellKeyboard keyboardMode() const override { return LayerShellKeyboard::Exclusive; }
+   void onFrameTick(float deltaMs) override;
+   void onOpen(std::string_view context) override;
+   void onClose() override;
+diff --git a/src/shell/panel/panel_surface_style.h b/src/shell/panel/panel_surface_style.h
+index 91f267e..783e6da 100644
+--- a/src/shell/panel/panel_surface_style.h
++++ b/src/shell/panel/panel_surface_style.h
+@@ -42,12 +42,22 @@ namespace shell::panel_surface {
+   }
+ 
+   [[nodiscard]] inline float backgroundOpacity(const ConfigService* configService) noexcept {
++    if (configService != nullptr) {
++      const auto& panel = configService->config().shell.panel;
++      if (panel.transparencyMode == PanelTransparencyMode::Glass && panel.glassBackgroundOpacity >= 0.0F)
++        return std::clamp(panel.glassBackgroundOpacity, 0.0F, 1.0F);
++    }
+     const auto mode =
+         configService != nullptr ? configService->config().shell.panel.transparencyMode : PanelTransparencyMode::Solid;
+     return detachedPanelBackgroundOpacityForTransparencyMode(mode);
+   }
+ 
+   [[nodiscard]] inline float cardOpacity(const ConfigService* configService, float panelBackgroundOpacity) noexcept {
++    if (configService != nullptr) {
++      const auto& panel = configService->config().shell.panel;
++      if (panel.transparencyMode == PanelTransparencyMode::Glass && panel.glassCardOpacity >= 0.0F)
++        return std::clamp(panel.glassCardOpacity, 0.0F, 1.0F);
++    }
+     const auto mode =
+         configService != nullptr ? configService->config().shell.panel.transparencyMode : PanelTransparencyMode::Solid;
+     return panelCardOpacityForTransparencyMode(mode, panelBackgroundOpacity);

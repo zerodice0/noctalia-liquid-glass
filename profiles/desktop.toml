@@ -15,6 +15,8 @@ corner_radius_scale = 1.25
 
 [noctalia.shell.panel]
 transparency_mode = "glass"
+glass_background_opacity = 0.28
+glass_card_opacity = 0.24
 control_center_placement = "floating"
 wallpaper_placement = "floating"
 session_placement = "floating"
@@ -56,6 +58,19 @@ background_opacity = 0.55
 
 [umbriel.appearance]
 corner_radius = 14
+border_width = 1
+outer_border_width = 1
+
+[umbriel.overview]
+background_blur = false
+
+# RGB follows Noctalia's palette; these alpha values define the material.
+[material]
+background_opacity = 0.28
+border_opacity = 0.65
+outer_border_opacity = 0.20
+overview_tint_opacity = 0.08
+workspace_opacity = 0.22
 
 [umbriel.appearance.blur]
 enabled = true
@@ -74,7 +89,7 @@ glass_highlight = 0.22
 [[umbriel.layer_rule]]
 match.namespace = '^noctalia-(bar-.*|notification|dock|panel|attached-panel|osd|desktop-widget-.*)$'
 blur = true
-blur_ignore_alpha = 0.20
+blur_ignore_alpha = 0.12
 blur_optimized = false
 
 # Ghostty controls only its background; keep text at full opacity.

@@ -1,0 +1,24 @@
+extends = "light"
+mode_family = "gpd"
+
+[noctalia.dock]
+icon_size = 36
+magnification = false
+margin_edge = 6
+
+[umbriel.appearance.blur]
+optimized = true
+passes = 1
+radius = 5
+glass_strength = 22.0
+glass_edge = 32.0
+glass_dispersion = 0.0
+
+[window_defaults]
+blur_optimized = true
+
+[[umbriel.layer_rule]]
+match.namespace = '^noctalia-(bar-.*|notification|dock|panel|attached-panel|osd|desktop-widget-.*)$'
+blur = true
+blur_ignore_alpha = 0.12
+blur_optimized = true
