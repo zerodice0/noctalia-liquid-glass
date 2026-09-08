@@ -1,0 +1,7 @@
+# Same layout, with the refraction pass entirely disabled.
+extends = "desktop"
+
+[umbriel.appearance.blur]
+glass_strength = 0.0
+glass_dispersion = 0.0
+glass_highlight = 0.0

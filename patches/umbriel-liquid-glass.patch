@@ -1,0 +1,352 @@
+diff --git i/src/config/config.cpp w/src/config/config.cpp
+index 05f01b5..7069468 100644
+--- i/src/config/config.cpp
++++ w/src/config/config.cpp
+@@ -854,7 +854,11 @@ namespace umbriel {
+               .real("noise", 0.0, 1.0, appearance.blur.noise)
+               .real("brightness", 0.0, 2.0, appearance.blur.brightness)
+               .real("contrast", 0.0, 2.0, appearance.blur.contrast)
+-              .real("saturation", 0.0, 2.0, appearance.blur.saturation);
++              .real("saturation", 0.0, 2.0, appearance.blur.saturation)
++              .real("glass_strength", 0.0, 64.0, appearance.blur.glassStrength)
++              .real("glass_edge", 1.0, 128.0, appearance.blur.glassEdge)
++              .real("glass_dispersion", 0.0, 0.25, appearance.blur.glassDispersion)
++              .real("glass_highlight", 0.0, 0.5, appearance.blur.glassHighlight);
+         });
+         s.sub("shadow", [&](Section& shadow) {
+           shadow.boolean("enabled", appearance.shadow.enabled)
+diff --git i/src/config/config.h w/src/config/config.h
+index f545949..dbb9db3 100644
+--- i/src/config/config.h
++++ w/src/config/config.h
+@@ -432,6 +432,10 @@ namespace umbriel {
+         double brightness = 0.9;
+         double contrast = 0.9;
+         double saturation = 1.1;
++        double glassStrength = 0.0;
++        double glassEdge = 28.0;
++        double glassDispersion = 0.03;
++        double glassHighlight = 0.12;
+         bool operator==(const Blur&) const = default;
+       } blur;
+       struct Shadow {
+diff --git i/src/core/build_info.cpp w/src/core/build_info.cpp
+index 9bf4a60..5cabf97 100644
+--- i/src/core/build_info.cpp
++++ w/src/core/build_info.cpp
+@@ -8,7 +8,7 @@
+ 
+ namespace umbriel::build_info {
+ 
+-  std::string_view version() noexcept { return UMBRIEL_VERSION; }
++  std::string_view version() noexcept { return UMBRIEL_VERSION "+liquid-glass.1"; }
+ 
+   std::string_view revision() noexcept { return UMBRIEL_GIT_REVISION; }
+ 
+diff --git i/src/server/server.cpp w/src/server/server.cpp
+index c94f832..3523bf4 100644
+--- i/src/server/server.cpp
++++ w/src/server/server.cpp
+@@ -392,6 +392,8 @@ namespace umbriel {
+         static_cast<float>(blur.contrast), static_cast<float>(blur.saturation)
+     );
+     m_sceneLayout = wlr_scene_attach_output_layout(m_scene, m_outputLayout);
++    wlr_scene_set_glass_data(m_scene, blur.glassStrength, blur.glassEdge,
++                            blur.glassDispersion, blur.glassHighlight);
+ 
+     // Global stacking keeps scratchpads above normal windows and below drag, panels, fullscreen, overlays, and lock.
+     // Per-output layer trees keep normal windows below panels.
+diff --git i/src/server/server_events.cpp w/src/server/server_events.cpp
+index c89788b..0c8b16e 100644
+--- i/src/server/server_events.cpp
++++ w/src/server/server_events.cpp
+@@ -352,6 +352,8 @@ namespace umbriel {
+ 
+     if (effects.sceneBlur) {
+       const Config::Appearance::Blur& blur = config().appearance.blur;
++      wlr_scene_set_glass_data(m_scene, blur.glassStrength, blur.glassEdge,
++                              blur.glassDispersion, blur.glassHighlight);
+       wlr_scene_set_blur_data(
+           m_scene, blur.passes, blur.radius, static_cast<float>(blur.noise), static_cast<float>(blur.brightness),
+           static_cast<float>(blur.contrast), static_cast<float>(blur.saturation)
+diff --git i/umbrielfx/include/umbrielfx/render/pass.h w/umbrielfx/include/umbrielfx/render/pass.h
+index 7ed546a..d9f74ae 100644
+--- i/umbrielfx/include/umbrielfx/render/pass.h
++++ w/umbrielfx/include/umbrielfx/render/pass.h
+@@ -69,6 +69,10 @@ struct fx_render_texture_options {
+ 	// with the regular shader and no sampling clamp at all; only pass a box when
+ 	// the source box actually reaches texels outside it.
+ 	struct wlr_fbox sample_box;
++	// Only set for the final backdrop composite, never for client content.
++	const struct blur_data *glass;
++	const struct wlr_render_texture_options *glass_mask;
++	float glass_mask_threshold;
+ };
+ 
+ struct fx_render_rect_options {
+diff --git i/umbrielfx/include/umbrielfx/types/fx/blur_data.h w/umbrielfx/include/umbrielfx/types/fx/blur_data.h
+index 967c2a0..8b1fd4b 100644
+--- i/umbrielfx/include/umbrielfx/types/fx/blur_data.h
++++ w/umbrielfx/include/umbrielfx/types/fx/blur_data.h
+@@ -11,6 +11,10 @@ struct blur_data {
+ 	float brightness;
+ 	float contrast;
+ 	float saturation;
++	float glass_strength;
++	float glass_edge;
++	float glass_dispersion;
++	float glass_highlight;
+ };
+ 
+ struct blur_data blur_data_get_default(void);
+diff --git i/umbrielfx/include/umbrielfx/types/wlr_scene.h w/umbrielfx/include/umbrielfx/types/wlr_scene.h
+index 5650a4b..28ffd5f 100644
+--- i/umbrielfx/include/umbrielfx/types/wlr_scene.h
++++ w/umbrielfx/include/umbrielfx/types/wlr_scene.h
+@@ -464,6 +464,9 @@ struct wlr_scene *wlr_scene_create(void);
+ 
+ 
+ // Sets the global blur parameters
++void wlr_scene_set_glass_data(struct wlr_scene *scene, float strength,
++		float edge, float dispersion, float highlight);
++
+ void wlr_scene_set_blur_data(struct wlr_scene *scene, int num_passes,
+ 	int radius, float noise, float brightness, float contrast, float saturation);
+ 
+diff --git i/umbrielfx/internal/render/fx_renderer/shaders.h w/umbrielfx/internal/render/fx_renderer/shaders.h
+index 0a66fb1..2cf8bfd 100644
+--- i/umbrielfx/internal/render/fx_renderer/shaders.h
++++ w/umbrielfx/internal/render/fx_renderer/shaders.h
+@@ -130,6 +130,8 @@ bool link_quad_grad_round_program(struct quad_grad_round_shader *shader, int max
+ 
+ struct tex_shader {
+ 	GLuint program;
++	GLint glass_params, glass_box, glass_radii, glass_texel;
++	GLint glass_mask, glass_mask_proj, glass_mask_threshold;
+ 	GLint proj;
+ 	GLint tex_proj;
+ 	GLint tex;
+diff --git i/umbrielfx/render/fx_renderer/fx_pass.c w/umbrielfx/render/fx_renderer/fx_pass.c
+index 2e79fa6..ffd5492 100644
+--- i/umbrielfx/render/fx_renderer/fx_pass.c
++++ w/umbrielfx/render/fx_renderer/fx_pass.c
+@@ -862,6 +862,37 @@ void fx_render_pass_add_texture(struct fx_gles_render_pass *pass,
+ 
+ 	glUniform1i(shader->tex, 0);
+ 	glUniform1f(shader->alpha, alpha);
++	// Reset for every draw: client text, stencil passes, and framebuffer copies
++	// must never inherit the previous backdrop's refraction uniforms.
++	const struct blur_data *glass = fx_options->glass;
++	glUniform4f(shader->glass_params,
++		glass ? glass->glass_strength : 0.0f, glass ? glass->glass_edge : 1.0f,
++		glass ? glass->glass_dispersion : 0.0f, glass ? glass->glass_highlight : 0.0f);
++	glUniform4f(shader->glass_box, clip_box->x, clip_box->y, clip_box->width, clip_box->height);
++	glUniform4f(shader->glass_radii, fx_options->corners.top_left, fx_options->corners.top_right,
++		fx_options->corners.bottom_left, fx_options->corners.bottom_right);
++	glUniform2f(shader->glass_texel, 1.0f / options->texture->width, 1.0f / options->texture->height);
++	glUniform1i(shader->glass_mask, 1);
++	glUniform1f(shader->glass_mask_threshold, 0.0f);
++	if (glass && fx_options->glass_mask && fx_options->glass_mask->texture) {
++		const struct wlr_render_texture_options *mask_options = fx_options->glass_mask;
++		struct fx_texture *mask = fx_get_texture(mask_options->texture);
++		// Noctalia uses GL_TEXTURE_2D. External client masks use the rounded-box
++		// fallback; a sampler2D must not be bound to an external EGL texture.
++		if (mask->target == GL_TEXTURE_2D) {
++			struct wlr_fbox mask_box;
++			wlr_render_texture_options_get_src_box(mask_options, &mask_box);
++			mask_box.x /= mask_options->texture->width;
++			mask_box.y /= mask_options->texture->height;
++			mask_box.width /= mask_options->texture->width;
++			mask_box.height /= mask_options->texture->height;
++			set_tex_matrix(shader->glass_mask_proj, mask_options->transform, &mask_box);
++			glActiveTexture(GL_TEXTURE1);
++			glBindTexture(GL_TEXTURE_2D, mask->tex);
++			glUniform1f(shader->glass_mask_threshold, fx_options->glass_mask_threshold);
++			glActiveTexture(GL_TEXTURE0);
++		}
++	}
+ 
+ 	struct wlr_color_primaries primaries_srgb;
+ 	wlr_color_primaries_from_named(&primaries_srgb, WLR_COLOR_NAMED_PRIMARIES_SRGB);
+@@ -1685,6 +1716,10 @@ void fx_render_pass_add_blur(struct fx_gles_render_pass *pass,
+ 	}
+ 
+ 	// Draw the blurred texture
++	const struct wlr_render_texture_options glass_mask = tex_options->base;
++	tex_options->glass = fx_options->blur_data->glass_strength > 0.0f ? fx_options->blur_data : NULL;
++	tex_options->glass_mask = masked ? &glass_mask : NULL;
++	tex_options->glass_mask_threshold = fx_options->ignore_alpha;
+ 	tex_options->base.dst_box = (struct wlr_box) {
+ 		.x = 0,
+ 		.y = 0,
+diff --git i/umbrielfx/render/fx_renderer/shaders.c w/umbrielfx/render/fx_renderer/shaders.c
+index 5191684..8c045fb 100644
+--- i/umbrielfx/render/fx_renderer/shaders.c
++++ w/umbrielfx/render/fx_renderer/shaders.c
+@@ -279,8 +279,8 @@ bool link_quad_grad_round_program(struct quad_grad_round_shader *shader, int max
+ 
+ bool link_tex_program(struct tex_shader *shader, enum fx_tex_shader_source source,
+ 		bool effects, bool sample_clamp) {
+-	GLchar frag_src_part[8192];
+-	GLchar frag_src[12288];
++	GLchar frag_src_part[16384];
++	GLchar frag_src[20480];
+ 	snprintf(frag_src_part, sizeof(frag_src_part),
+ 		tex_frag_src, source, effects, sample_clamp);
+ 	snprintf(frag_src, sizeof(frag_src),
+@@ -303,6 +303,13 @@ bool link_tex_program(struct tex_shader *shader, enum fx_tex_shader_source sourc
+ 	shader->tex_proj = glGetUniformLocation(prog, "tex_proj");
+ 
+ 	shader->discard_transparent = glGetUniformLocation(prog, "discard_transparent");
++	shader->glass_params = glGetUniformLocation(prog, "glass_params");
++	shader->glass_box = glGetUniformLocation(prog, "glass_box");
++	shader->glass_radii = glGetUniformLocation(prog, "glass_radii");
++	shader->glass_texel = glGetUniformLocation(prog, "glass_texel");
++	shader->glass_mask = glGetUniformLocation(prog, "glass_mask");
++	shader->glass_mask_proj = glGetUniformLocation(prog, "glass_mask_proj");
++	shader->glass_mask_threshold = glGetUniformLocation(prog, "glass_mask_threshold");
+ 	shader->sample_bounds = sample_clamp
+ 		? glGetUniformLocation(prog, "sample_bounds")
+ 		: -1;
+diff --git i/umbrielfx/render/fx_renderer/shaders/tex.frag w/umbrielfx/render/fx_renderer/shaders/tex.frag
+index 7ef99d5..7fb0d5b 100644
+--- i/umbrielfx/render/fx_renderer/shaders/tex.frag
++++ w/umbrielfx/render/fx_renderer/shaders/tex.frag
+@@ -59,6 +59,83 @@ uniform float clip_radius_bottom_right;
+ 
+ uniform float discard_transparent;
+ 
++// Backdrop-only optical pass. Distances are physical framebuffer pixels, like
++// the existing blur radius. A zero strength takes the original texture path.
++uniform vec4 glass_params; // strength, edge width, RGB dispersion, edge light
++uniform vec4 glass_box;
++uniform vec4 glass_radii;
++uniform vec2 glass_texel;
++uniform sampler2D glass_mask;
++uniform mat3 glass_mask_proj;
++uniform float glass_mask_threshold;
++
++float glass_inside(vec2 pixel) {
++	vec2 local = (pixel - glass_box.xy) / max(glass_box.zw, vec2(1.0));
++	if (local.x < 0.0 || local.y < 0.0 || local.x > 1.0 || local.y > 1.0) return 0.0;
++	vec2 uv = (vec3(local, 1.0) * glass_mask_proj).xy;
++	return step(glass_mask_threshold, texture2D(glass_mask, uv).a);
++}
++
++// Locate the visible card edge rather than its layer-shell allocation (which
++// includes transparent padding for dock magnification and panel shadows).
++// Interior pixels need just four mask reads. Search only rays crossing an edge.
++float glass_edge_distance(vec2 pixel, vec2 direction, float width) {
++	if (glass_inside(pixel + direction * width) > 0.5) return width;
++	float low = 0.0;
++	float high = width;
++	for (int i = 0; i < 6; ++i) {
++		float middle = (low + high) * 0.5;
++		if (glass_inside(pixel + direction * middle) > 0.5) low = middle;
++		else high = middle;
++	}
++	return (low + high) * 0.5;
++}
++
++vec4 glass_sample() {
++	vec2 p = gl_FragCoord.xy;
++	vec2 half_size = max(glass_box.zw * 0.5, vec2(1.0));
++	vec2 center = p - glass_box.xy - half_size;
++	float radius = center.x < 0.0
++		? (center.y < 0.0 ? glass_radii.x : glass_radii.z)
++		: (center.y < 0.0 ? glass_radii.y : glass_radii.w);
++	radius = clamp(radius, 0.0, min(half_size.x, half_size.y));
++	vec2 q = abs(center) - half_size + radius;
++	float distance = -(min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - radius);
++	vec2 normal;
++	if (max(q.x, q.y) > 0.0) normal = normalize(max(q, 0.0) + vec2(0.00001)) * sign(center);
++	else normal = q.x > q.y ? vec2(sign(center.x), 0.0) : vec2(0.0, sign(center.y));
++	float width = min(glass_params.y, min(half_size.x, half_size.y));
++	if (glass_mask_threshold > 0.0) {
++		float left = glass_edge_distance(p, vec2(-1.0, 0.0), width);
++		float right = glass_edge_distance(p, vec2(1.0, 0.0), width);
++		float top = glass_edge_distance(p, vec2(0.0, -1.0), width);
++		float bottom = glass_edge_distance(p, vec2(0.0, 1.0), width);
++		vec4 weight = vec4(1.0) - vec4(left, right, top, bottom) / width;
++		weight *= weight;
++		vec2 gradient = vec2(weight.y - weight.x, weight.w - weight.z);
++		normal = gradient / max(length(gradient), 0.0001);
++		distance = min(min(left, right), min(top, bottom));
++	}
++	float edge = 1.0 - smoothstep(0.0, width, max(distance, 0.0));
++	// Snell refraction through a rounded rim, with a bounded sampling footprint.
++	vec3 surface_normal = normalize(vec3(normal * edge * 0.98, sqrt(max(0.001, 1.0 - edge * edge))));
++	vec3 ray = refract(vec3(0.0, 0.0, -1.0), surface_normal, 1.0 / 1.45);
++	vec2 displacement = ray.xy / max(-ray.z, 0.1);
++	displacement /= max(1.0, length(displacement));
++	vec2 offset = displacement * glass_params.x * glass_texel;
++	vec2 lo = glass_texel * 0.5;
++	vec2 hi = vec2(1.0) - lo;
++	vec4 color = texture2D(tex, clamp(v_texcoord + offset, lo, hi));
++	if (glass_params.z > 0.0 && edge > 0.0) {
++		color.r = texture2D(tex, clamp(v_texcoord + offset * (1.0 + glass_params.z), lo, hi)).r;
++		color.b = texture2D(tex, clamp(v_texcoord + offset * (1.0 - glass_params.z), lo, hi)).b;
++	}
++	float light = 0.35 + 0.65 * max(dot(normal, normalize(vec2(-0.6, -0.8))), 0.0);
++	float rim = exp(-max(distance, 0.0) / 1.6);
++	color.rgb = mix(color.rgb, vec3(color.a), glass_params.w * light * (0.22 * edge + 0.78 * rim));
++	return color;
++}
++
+ #if SAMPLE_CLAMP
+ // Normalized texel range the fragment may sample: xy is the first sampled texel
+ // center, zw the last. A cropped surface whose crop edge falls between texels
+@@ -75,6 +152,7 @@ uniform vec4 sample_bounds;
+ #endif
+ 
+ vec4 sample_texture() {
++	if (glass_params.x > 0.0) return glass_sample();
+ #if SOURCE == SOURCE_TEXTURE_RGBA || SOURCE == SOURCE_TEXTURE_EXTERNAL
+ 	return texture2D(tex, SAMPLE_UV);
+ #elif SOURCE == SOURCE_TEXTURE_RGBX
+diff --git i/umbrielfx/types/fx/blur_data.c w/umbrielfx/types/fx/blur_data.c
+index 571f47f..ba9f3da 100644
+--- i/umbrielfx/types/fx/blur_data.c
++++ w/umbrielfx/types/fx/blur_data.c
+@@ -23,7 +23,9 @@ bool blur_data_should_parameters_blur_effects(struct blur_data *blur_data) {
+ }
+ 
+ int blur_data_calc_size(struct blur_data *blur_data) {
+-	return pow(2, blur_data->num_passes + 1) * blur_data->radius;
++	// Include the refracted footprint in both render and damage propagation.
++	return pow(2, blur_data->num_passes + 1) * blur_data->radius
++		+ ceilf(blur_data->glass_strength * (1.0f + blur_data->glass_dispersion));
+ }
+ 
+ static float lerp(float a, float b, float f) {
+@@ -60,4 +62,3 @@ struct blur_data blur_data_apply_strength(struct blur_data *ref_blur_data, float
+ 
+ 	return blur_data;
+ }
+-
+diff --git i/umbrielfx/types/scene/wlr_scene.c w/umbrielfx/types/scene/wlr_scene.c
+index bb6cfeb..df90c7b 100644
+--- i/umbrielfx/types/scene/wlr_scene.c
++++ w/umbrielfx/types/scene/wlr_scene.c
+@@ -1418,6 +1418,21 @@ void wlr_scene_blur_set_clipped_region(struct wlr_scene_blur *blur,
+ 	scene_node_update(&blur->node, NULL);
+ }
+ 
++void wlr_scene_set_glass_data(struct wlr_scene *scene, float strength,
++		float edge, float dispersion, float highlight) {
++	struct blur_data *data = &scene->blur_data;
++	if (data->glass_strength == strength && data->glass_edge == edge
++			&& data->glass_dispersion == dispersion && data->glass_highlight == highlight) {
++		return;
++	}
++	data->glass_strength = strength;
++	data->glass_edge = edge;
++	data->glass_dispersion = dispersion;
++	data->glass_highlight = highlight;
++	mark_all_optimized_blur_nodes_dirty(&scene->tree.node);
++	scene_node_update(&scene->tree.node, NULL);
++}
++
+ void wlr_scene_set_blur_data(struct wlr_scene *scene, int num_passes,
+ 		int radius, float noise, float brightness, float contrast, float saturation) {
+ 	struct blur_data *buff_data = &scene->blur_data;

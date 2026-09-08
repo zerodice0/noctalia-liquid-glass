@@ -1,0 +1,67 @@
+# Optical distances are physical pixels. Layout dimensions are logical pixels.
+[noctalia.shell]
+corner_radius_scale = 1.25
+
+[noctalia.shell.panel]
+transparency_mode = "glass"
+control_center_placement = "floating"
+wallpaper_placement = "floating"
+session_placement = "floating"
+borders = true
+shadow = true
+
+[noctalia.bar.default]
+background_opacity = 0.38
+border = "#FFFFFF55"
+border_width = 0.75
+concave_edge_corners = false
+margin_edge = 6
+margin_ends = 12
+radius = 18
+radius_top_left = 18
+radius_top_right = 18
+radius_bottom_left = 18
+radius_bottom_right = 18
+
+[noctalia.dock]
+enabled = true
+background_opacity = 0.34
+border = "#FFFFFF66"
+border_width = 0.75
+concave_edge_corners = false
+margin_edge = 10
+radius = 22
+radius_top_left = 22
+radius_top_right = 22
+radius_bottom_left = 22
+radius_bottom_right = 22
+icon_size = 44
+
+[noctalia.notification]
+background_opacity = 0.60
+
+[noctalia.osd]
+background_opacity = 0.55
+
+[umbriel.appearance]
+corner_radius = 14
+
+[umbriel.appearance.blur]
+enabled = true
+optimized = false
+passes = 2
+radius = 4
+noise = 0.006
+brightness = 1.0
+contrast = 1.0
+saturation = 1.10
+glass_strength = 38.0
+glass_edge = 52.0
+glass_dispersion = 0.09
+glass_highlight = 0.22
+
+[[umbriel.layer_rule]]
+match.namespace = '^noctalia-(bar-.*|notification|dock|panel|attached-panel|osd|desktop-widget-.*)$'
+blur = true
+blur_ignore_alpha = 0.20
+blur_optimized = false

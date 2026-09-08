@@ -1,0 +1,68 @@
+[noctalia.shell]
+corner_radius_scale = 0.5
+
+[noctalia.shell.panel]
+transparency_mode = "glass"
+control_center_placement = "attached"
+wallpaper_placement = "attached"
+session_placement = "attached"
+borders = true
+shadow = true
+
+[noctalia.bar.default]
+background_opacity = 1.0
+border = "outline"
+border_width = 0.0
+concave_edge_corners = true
+margin_edge = 0
+margin_ends = 100
+radius = 12
+radius_top_left = 12
+radius_top_right = 12
+radius_bottom_left = 12
+radius_bottom_right = 12
+
+[noctalia.dock]
+enabled = true
+background_opacity = 0.7999999523162842
+border = "primary"
+border_width = 0.5
+concave_edge_corners = true
+margin_edge = 0
+radius = 16
+radius_top_left = 16
+radius_top_right = 16
+radius_bottom_left = 16
+radius_bottom_right = 16
+icon_size = 48
+magnification = true
+
+[noctalia.notification]
+background_opacity = 0.9700000286102295
+
+[noctalia.osd]
+background_opacity = 0.9700000286102295
+
+[umbriel.appearance]
+prefer_no_csd = true
+border_width = 1
+outer_border_width = 0
+corner_radius = 5
+drag_opacity = 0.85
+
+[umbriel.appearance.blur]
+enabled = true
+optimized = true
+passes = 2
+radius = 8
+noise = 0.02
+brightness = 0.9
+contrast = 0.9
+saturation = 1.1
+glass_strength = 0.0
+
+[umbriel.appearance.shadow]
+enabled = true
+softness = 15
+offset_x = 2
+offset_y = 2

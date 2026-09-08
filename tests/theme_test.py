@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+import importlib.util
+import os
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+import tomlkit
+
+ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location("theme", ROOT / "scripts/theme.py")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+
+class ThemeTests(unittest.TestCase):
+    def test_apply_switch_restore_preserves_unrelated_settings_and_rules(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(temp / "config"),
+                                         "XDG_STATE_HOME": str(temp / "state"),
+                                         "NOCTALIA_STATE_HOME": str(temp / "state"),
+                                         "GLASS_NO_RELOAD": "1"}):
+                base = temp / "config/umbriel/config.toml"
+                base.parent.mkdir(parents=True)
+                base_text = '[general]\nautostart = []\nxwayland = false\n[[layer_rule]]\nmatch.namespace = "^existing$"\nblur = false\n'
+                base.write_text(base_text)
+                theme = module.Theme()
+                self.assertEqual(theme.settings, temp / "state/noctalia/settings.toml")
+                theme.binary = ROOT / ".build/umbriel/build/umbriel"
+                theme.launcher = temp / "bin/umbriel-liquid-glass"
+                theme.settings.parent.mkdir(parents=True)
+                original = '# Keep this comment\n[shell]\nfont_family = "Original Font"\n[wallpaper.default]\npath = "/private/wallpaper.jpg"\n[dock]\nbackground_opacity = 0.8\n'
+                theme.settings.write_text(original)
+                theme.apply("desktop", dry_run=True)
+                self.assertEqual(theme.settings.read_text(), original)
+                self.assertFalse(theme.baseline.exists())
+                theme.apply("desktop")
+                data = module.read_toml(theme.settings).unwrap()
+                self.assertEqual(data["dock"]["background_opacity"], 0.34)
+                rules = module.resolve_umbriel(theme.overlay)["layer_rule"]
+                self.assertEqual(len(rules), 2)
+                self.assertEqual(rules[0]["match"]["namespace"], "^existing$")
+                theme.apply("gpd")
+                self.assertFalse(module.read_toml(theme.settings)["dock"]["magnification"])
+                theme.apply("desktop")
+                self.assertNotIn("magnification", module.read_toml(theme.settings)["dock"])
+                theme.apply("original")
+                self.assertEqual(module.resolve_umbriel(theme.overlay)["appearance"]["blur"]["glass_strength"], 0.0)
+                theme.apply("desktop")
+                edited = module.read_toml(theme.settings)
+                edited["shell"]["font_family"] = "User Changed Font"
+                theme.settings.write_text(tomlkit.dumps(edited))
+                theme.restore()
+                restored = module.read_toml(theme.settings).unwrap()
+                self.assertEqual(restored["dock"], {"background_opacity": 0.8})
+                self.assertEqual(restored["shell"]["font_family"], "User Changed Font")
+                self.assertEqual(restored["wallpaper"]["default"]["path"], "/private/wallpaper.jpg")
+                self.assertIn("# Keep this comment", theme.settings.read_text())
+                self.assertEqual(base.read_text(), base_text)
+                self.assertFalse(theme.launcher.exists())
+                self.assertFalse(theme.service.exists())
+                self.assertFalse(theme.baseline.exists())
+                self.assertEqual(module.resolve_umbriel(theme.overlay)["layer_rule"], rules[:1])
+
+    def test_atomic_write_preserves_symlinks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "actual"
+            link = Path(directory) / "link"
+            target.write_text("old")
+            link.symlink_to(target)
+            module.atomic(link, "new")
+            self.assertTrue(link.is_symlink())
+            self.assertEqual(target.read_text(), "new")
+
+    def test_profiles_contain_no_machine_configuration(self):
+        for name in ("desktop", "gpd", "frosted", "original"):
+            data = module.profile(name)
+            self.assertNotIn("output", data["umbriel"])
+            self.assertNotIn("input", data["umbriel"])
+            self.assertNotIn("keybinds", data["umbriel"])
+            self.assertNotIn("wallpaper", data["noctalia"])
+            self.assertNotIn("plugins", data["noctalia"])
+
+
+if __name__ == "__main__":
+    unittest.main()
