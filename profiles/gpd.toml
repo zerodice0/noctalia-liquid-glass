@@ -1,6 +1,12 @@
 # Inherits desktop layout. Cached wallpaper blur reduces live-scene work.
 extends = "desktop"
 
+[apps.ghostty]
+background_opacity = 0.76
+
+[window_defaults]
+blur_optimized = true
+
 [noctalia.dock]
 icon_size = 36
 magnification = false

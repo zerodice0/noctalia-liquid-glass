@@ -30,29 +30,42 @@ class ThemeTests(unittest.TestCase):
                 self.assertEqual(theme.settings, temp / "state/noctalia/settings.toml")
                 theme.binary = ROOT / ".build/umbriel/build/umbriel"
                 theme.launcher = temp / "bin/umbriel-liquid-glass"
+                theme.ghostty.parent.mkdir(parents=True)
+                ghost_original = '# Preserve Ghostty\nbackground-opacity = 0.8\nfont-size = 10\n'
+                theme.ghostty.write_text(ghost_original)
                 theme.settings.parent.mkdir(parents=True)
                 original = '# Keep this comment\n[shell]\nfont_family = "Original Font"\n[wallpaper.default]\npath = "/private/wallpaper.jpg"\n[dock]\nbackground_opacity = 0.8\n'
                 theme.settings.write_text(original)
                 theme.apply("desktop", dry_run=True)
                 self.assertEqual(theme.settings.read_text(), original)
                 self.assertFalse(theme.baseline.exists())
+                self.assertEqual(theme.ghostty.read_text(), ghost_original)
                 theme.apply("desktop")
+                self.assertIn("background-opacity = 0.68", theme.ghostty.read_text())
+                window_rules = module.resolve_umbriel(theme.overlay)["window_rule"]
+                self.assertEqual(window_rules[0]["opacity"], 0.92)
+                self.assertEqual(window_rules[1]["match"]["app_id"], r"^com\.mitchellh\.ghostty$")
                 data = module.read_toml(theme.settings).unwrap()
                 self.assertEqual(data["dock"]["background_opacity"], 0.34)
                 rules = module.resolve_umbriel(theme.overlay)["layer_rule"]
                 self.assertEqual(len(rules), 2)
                 self.assertEqual(rules[0]["match"]["namespace"], "^existing$")
                 theme.apply("gpd")
+                self.assertIn("background-opacity = 0.76", theme.ghostty.read_text())
                 self.assertFalse(module.read_toml(theme.settings)["dock"]["magnification"])
                 theme.apply("desktop")
                 self.assertNotIn("magnification", module.read_toml(theme.settings)["dock"])
                 theme.apply("original")
+                self.assertIn("background-opacity-cells = false", theme.ghostty.read_text())
+                self.assertNotIn("window_rule", module.resolve_umbriel(theme.overlay))
                 self.assertEqual(module.resolve_umbriel(theme.overlay)["appearance"]["blur"]["glass_strength"], 0.0)
                 theme.apply("desktop")
                 edited = module.read_toml(theme.settings)
                 edited["shell"]["font_family"] = "User Changed Font"
                 theme.settings.write_text(tomlkit.dumps(edited))
+                theme.ghostty.write_text(theme.ghostty.read_text().replace("font-size = 10", "font-size = 12"))
                 theme.restore()
+                self.assertEqual(theme.ghostty.read_text(), ghost_original.replace("font-size = 10", "font-size = 12"))
                 restored = module.read_toml(theme.settings).unwrap()
                 self.assertEqual(restored["dock"], {"background_opacity": 0.8})
                 self.assertEqual(restored["shell"]["font_family"], "User Changed Font")

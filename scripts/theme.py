@@ -16,6 +16,22 @@ import tempfile
 import tomlkit
 
 REPO = Path(__file__).resolve().parents[1]
+GHOST_BEGIN = "# BEGIN noctalia-liquid-glass managed background"
+GHOST_END = "# END noctalia-liquid-glass managed background"
+
+
+def ghostty_unmanaged(text):
+    # Markers isolate our two settings from the user's fonts, bindings and theme.
+    count = text.count(GHOST_BEGIN)
+    if count != text.count(GHOST_END) or count > 1:
+        raise ValueError("Ghostty managed block is malformed; refusing to edit")
+    if not count:
+        return text
+    pattern = re.escape(GHOST_BEGIN) + r"\n.*?" + re.escape(GHOST_END) + r"\n?"
+    result, removed = re.subn(pattern, "", text, flags=re.DOTALL)
+    if removed != 1:
+        raise ValueError("Ghostty managed block is malformed; refusing to edit")
+    return result
 
 
 def merge(dst, src):
@@ -132,6 +148,9 @@ class Theme:
         self.service = self.config / "systemd/user/umbriel.service.d/90-liquid-glass.conf"
         self.active = self.state / "active.json"
         self.baseline = self.state / "baseline.json"
+        self.ghostty = self.config / "ghostty/config.ghostty"
+        if not self.ghostty.exists():
+            self.ghostty = self.config / "ghostty/config"
 
     def candidates(self, name):
         selected = profile(name)
@@ -148,6 +167,8 @@ class Theme:
         for kind in ("layer_rule", "window_rule"):
             if kind in compositor:
                 compositor[kind] = base.get(kind, []) + compositor[kind]
+        if "window_defaults" in selected:
+            compositor["window_rule"] = [selected["window_defaults"]] + compositor.get("window_rule", base.get("window_rule", []))
         compositor["include"] = {"files": [str(self.base)]}
         launcher = ("#!/bin/sh\n"
                     f"binary={shlex.quote(str(self.binary))}\n"
@@ -159,12 +180,25 @@ class Theme:
                     'exec /usr/bin/umbriel "$@"\n')
         service_path = str(self.launcher).replace("%", "%%").replace('"', '\\"')
         service = f'[Service]\nExecStart=\nExecStart="{service_path}"\n'
-        return selected, {
+        writes = {
             self.settings: tomlkit.dumps(settings),
             self.overlay: tomlkit.dumps(compositor),
             self.launcher: launcher,
             self.service: service,
         }
+        if self.ghostty.exists():
+            content = ghostty_unmanaged(self.ghostty.read_text())
+            options = selected.get("apps", {}).get("ghostty")
+            if options:
+                content += ("" if not content or content.endswith("\n") else "\n") + GHOST_BEGIN + "\n"
+                for key in ("background_opacity", "background_opacity_cells"):
+                    if key in options:
+                        value = str(options[key]).lower()
+                        content += f'{key.replace("_", "-")} = {value}\n'
+                content += GHOST_END + "\n"
+            if options or content != self.ghostty.read_text():
+                writes[self.ghostty] = content
+        return selected, writes
 
     def validate(self, writes):
         if not self.binary.exists():
@@ -176,6 +210,15 @@ class Theme:
             compositor.write_text(writes[self.overlay])
             subprocess.run(["noctalia", "config", "validate", str(settings)], check=True)
             subprocess.run([str(self.binary), "validate", "-c", str(compositor)], check=True)
+        if self.ghostty in writes:
+            # Same directory preserves relative config-file includes.
+            fd, temporary = tempfile.mkstemp(prefix=".glass-validate-", dir=self.ghostty.parent)
+            try:
+                with os.fdopen(fd, "w") as stream:
+                    stream.write(writes[self.ghostty])
+                subprocess.run(["ghostty", "+validate-config", f"--config-file={temporary}"], check=True)
+            finally:
+                os.unlink(temporary)
 
     def backup(self, paths):
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
@@ -203,13 +246,15 @@ class Theme:
                 paths.update(path for path, _ in leaves(profile(standard)["noctalia"]))
             baseline = {"settings": str(self.settings),
                         "keys": [{"path": list(path), "before": get(original, path)} for path in sorted(paths)],
-                        "files": {key: value for key, value in records.items() if key != str(self.settings)}}
-            atomic(self.baseline, json.dumps(baseline, indent=2))
+                        "files": {key: value for key, value in records.items() if key not in (str(self.settings), str(self.ghostty))}}
         else:
             baseline = json.loads(self.baseline.read_text())
             known = {tuple(item["path"]) for item in baseline["keys"]}
             if any(path not in known for path, _ in leaves(selected["noctalia"])):
                 raise ValueError("New profile controls additional keys. Restore the baseline first, then apply it.")
+        if self.ghostty in writes:
+            baseline.setdefault("ghostty_config", str(self.ghostty))
+        atomic(self.baseline, json.dumps(baseline, indent=2))
         # Roll back all files on a write failure; keep the backup for inspection.
         try:
             for path, content in writes.items():
@@ -241,7 +286,10 @@ class Theme:
             put(settings, tuple(item["path"]), item["before"])
         # Back up the current theme before reverting. Preserve unrelated GUI
         # changes by reverting only the appearance keys we managed.
-        self.backup([self.settings, *map(Path, baseline["files"])])
+        ghostty = Path(baseline["ghostty_config"]) if "ghostty_config" in baseline else None
+        self.backup([self.settings, *map(Path, baseline["files"]), *([ghostty] if ghostty else [])])
+        if ghostty and ghostty.exists():
+            atomic(ghostty, ghostty_unmanaged(ghostty.read_text()), ghostty.stat().st_mode & 0o777)
         atomic(self.settings, tomlkit.dumps(settings))
         restored_files = copy.deepcopy(baseline["files"])
         # Keep a valid passthrough config for an already-running patched
@@ -281,6 +329,24 @@ class Theme:
                 put(saved, path, record)
         compositor = resolve_umbriel(self.overlay if self.overlay.exists() else self.base)
         data = {"noctalia": saved, "umbriel": {"appearance": compositor.get("appearance", {})}}
+        # Reuse only portable managed rules, never export machine rules.
+        if self.active.exists():
+            active_profile = profile(json.loads(self.active.read_text())["profile"])
+            if "window_defaults" in active_profile:
+                data["window_defaults"] = active_profile["window_defaults"]
+            for kind in ("window_rule", "layer_rule"):
+                if kind in active_profile["umbriel"]:
+                    data["umbriel"][kind] = active_profile["umbriel"][kind]
+        if self.ghostty.exists():
+            effective_ghost = subprocess.check_output(["ghostty", "+show-config"], text=True)
+            options = {"background_opacity": 1.0, "background_opacity_cells": False}
+            for line in effective_ghost.splitlines():
+                key, sep, value = line.partition(" = ")
+                if sep and key == "background-opacity":
+                    options["background_opacity"] = float(value)
+                elif sep and key == "background-opacity-cells":
+                    options["background_opacity_cells"] = value == "true"
+            data["apps"] = {"ghostty": options}
         # A theme saved from stock Umbriel must disable refraction explicitly.
         data["umbriel"]["appearance"].setdefault("blur", {}).setdefault("glass_strength", 0.0)
         atomic(target, tomlkit.dumps(data), 0o644)

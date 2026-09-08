@@ -1,3 +1,7 @@
+[apps.ghostty]
+background_opacity = 0.8
+background_opacity_cells = false
+
 [noctalia.shell]
 corner_radius_scale = 0.5
 
