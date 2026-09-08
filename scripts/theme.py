@@ -498,6 +498,8 @@ def main():
     commands.add_parser("follow-mode")
     commands.add_parser("greeter-sync")
     commands.add_parser("greeter-status")
+    commands.add_parser("apps-apply")
+    commands.add_parser("apps-restore")
     args = parser.parse_args()
     theme = Theme()
     if args.command in ("apply", "plan"):
@@ -514,6 +516,13 @@ def main():
     elif args.command == "greeter-status":
         from greeter_sync import status
         status()
+    elif args.command in ("apps-apply", "apps-restore"):
+        from app_theme import AppTheme
+        apps = AppTheme(theme)
+        if args.command == "apps-apply":
+            apps.apply()
+        else:
+            apps.restore()
     else:
         print(theme.active.read_text() if theme.active.exists() else "No managed theme active.")
 

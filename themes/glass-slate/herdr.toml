@@ -1,0 +1,14 @@
+[theme]
+name = "terminal"
+auto_switch = false
+
+[theme.custom]
+surface_dim = "#8D9DAC"
+panel_bg = "reset"
+sidebar_bg = "#2B333E"
+active_row_bg = "#3B4D60"
+selection_bg = "#3B4D60"
+text = "#F2F5FA"
+accent = "#A8C4D9"
+red = "#E5A0A5"
+green = "#AAC6B8"

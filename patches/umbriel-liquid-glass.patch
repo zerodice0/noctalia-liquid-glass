@@ -31,7 +31,7 @@ index f545949..dbb9db3 100644
        } blur;
        struct Shadow {
 diff --git a/src/core/build_info.cpp b/src/core/build_info.cpp
-index 9bf4a60..61f872e 100644
+index 9bf4a60..37960c2 100644
 --- a/src/core/build_info.cpp
 +++ b/src/core/build_info.cpp
 @@ -8,7 +8,7 @@
@@ -39,7 +39,7 @@ index 9bf4a60..61f872e 100644
  namespace umbriel::build_info {
  
 -  std::string_view version() noexcept { return UMBRIEL_VERSION; }
-+  std::string_view version() noexcept { return UMBRIEL_VERSION "+liquid-glass.3"; }
++  std::string_view version() noexcept { return UMBRIEL_VERSION "+liquid-glass.4"; }
  
    std::string_view revision() noexcept { return UMBRIEL_GIT_REVISION; }
  
@@ -92,6 +92,29 @@ index 5e1b046..7cd32ab 100644
        std::vector<std::unique_ptr<DesktopMirror>> mirrors;
      };
  
+diff --git a/src/scene/cheatsheet.cpp b/src/scene/cheatsheet.cpp
+index ab3f550..65ec385 100644
+--- a/src/scene/cheatsheet.cpp
++++ b/src/scene/cheatsheet.cpp
+@@ -567,6 +567,18 @@ namespace umbriel {
+     const int cornerRadius = config().appearance.cornerRadius;
+     m_shadow.update(m_tree, panelW, panelH, kBorderWidth, cornerRadius);
+ 
++    // This compositor-owned overlay is not a client surface, so window/layer
++    // blur rules never reach it. Blur the live scene beneath its translucent
++    // material before drawing the border, tint, and undistorted text.
++    if (config().appearance.blur.enabled && config().colors.background[3] < 1.0F) {
++      if (wlr_scene_blur* blur = wlr_scene_blur_create(m_tree, panelW, panelH)) {
++        wlr_scene_blur_set_corner_radius(blur, nestedRadius(cornerRadius, kBorderWidth));
++        // The guide overlays windows as well as wallpaper; a bottom-layer-only
++        // snapshot would replace those windows with wallpaper inside the guide.
++        wlr_scene_blur_set_should_only_blur_bottom_layer(blur, false);
++      }
++    }
++
+     float borderColor[4]{};
+     premultiplied(borderColor, config().colors.accentPrimary, 1.0F);
+     wlr_scene_border* panelBorder = wlr_scene_border_create(m_tree, borderColor, borderColor);
 diff --git a/src/server/server.cpp b/src/server/server.cpp
 index c94f832..3523bf4 100644
 --- a/src/server/server.cpp

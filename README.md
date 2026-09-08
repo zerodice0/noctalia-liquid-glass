@@ -50,7 +50,7 @@ systemctl --user show umbriel.service -p ExecStart
 ./glass status
 ```
 
-설치 버전은 Umbriel `+liquid-glass.3`, Noctalia `+liquid-glass.2`이며, 실행 중 프로세스 경로도 위 runtime 바이너리여야 합니다. Umbriel 바이너리 또는 설정 검증이 실패하면 런처는 패키지 Umbriel로 돌아갑니다. 실행 도중 GPU 오류까지 자동 복구하는 기능은 아닙니다. 기존 autostart의 정확히 `noctalia`인 항목만 새 셸 런처로 교체합니다. 다른 방식으로 셸을 시작하는 기기는 `~/.local/bin/noctalia-liquid-glass`를 사용하도록 별도 설정해야 합니다.
+설치 버전은 Umbriel `+liquid-glass.4`, Noctalia `+liquid-glass.2`이며, 실행 중 프로세스 경로도 위 runtime 바이너리여야 합니다. Umbriel 바이너리 또는 설정 검증이 실패하면 런처는 패키지 Umbriel로 돌아갑니다. 실행 도중 GPU 오류까지 자동 복구하는 기능은 아닙니다. 기존 autostart의 정확히 `noctalia`인 항목만 새 셸 런처로 교체합니다. 다른 방식으로 셸을 시작하는 기기는 `~/.local/bin/noctalia-liquid-glass`를 사용하도록 별도 설정해야 합니다.
 
 ## 프리셋 전환과 복구
 
@@ -80,9 +80,24 @@ bar·dock에서는 배경 불투명도와 테두리 색상·두께만 관리합�
 
 모드별 프리셋은 Noctalia의 라이트/다크 전환 후 `liquid_glass` 사용자 템플릿의 `follow-mode` 후처리로 같은 계열의 재질 설정을 선택합니다. `auto` 모드는 자동 설정을 유지합니다. 레거시 `desktop`, `gpd`, `frosted`는 색상 모드를 강제하지 않습니다. 템플릿 후처리는 저장소 경로를 사용하므로 저장소를 옮겼다면 `apply`를 다시 실행하세요. 높은 투명도의 라이트 모드는 배경에 따라 글자 대비가 부족할 수 있으므로 기본 권장은 `dark`입니다.
 
-배경화면, 모니터, 키보드, 키 바인딩, 계정, 클립보드, 플러그인 데이터는 Git에 저장하지 않습니다. `original`도 전체 데스크톱 복제본이 아닌 외형 프리셋입니다. 다른 테마를 쓰기 전 `save`하고, 복원할 때 해당 프리셋을 `apply`하세요. 색상 팔레트와 폰트는 기기의 기존 설정을 유지합니다.
+배경화면, 모니터, 키보드, 키 바인딩, 계정, 클립보드, 플러그인 데이터는 Git에 저장하지 않습니다. `original`도 전체 데스크톱 복제본이 아닌 외형 프리셋입니다. 다른 테마를 쓰기 전 `save`하고, 복원할 때 해당 프리셋을 `apply`하세요. 일반 외형 프로필은 색상 팔레트와 폰트를 유지합니다. `apps-apply`는 아래의 색상 세트를 별도로 적용합니다.
 
 GPD WIN mini에서는 저장소를 복제한 뒤 **그 기기에서 빌드·설치**하고 `./glass apply gpd-dark`를 실행하세요. 데스크톱의 전체 설정 디렉터리나 바이너리를 복사하지 마세요. 패널 이름/입력/배율은 기기 설정을 그대로 사용합니다. 모니터별 Noctalia 바 설정은 `bar.default`보다 우선하므로 별도 조정이 필요할 수 있습니다.
+
+## Ghostty·Herdr 색상 세트
+
+```sh
+./glass apply glass-dark
+./glass apps-apply
+```
+
+`apps-apply`는 `themes/glass-slate/`에 저장된 Noctalia 팔레트, Ghostty 색상 템플릿, Herdr 테마를 설치합니다. Ghostty의 청회색 배경(`#2B333E`)·밝은 글자·ANSI 색상을 재현하고, 이후 Noctalia 팔레트 변경도 사용자 템플릿으로 동기화합니다. 배경 불투명도 38%는 `glass-dark` 프로필에서 관리합니다. Herdr는 `terminal` 기반 테마와 청회색 UI 색상을 사용하며, 이 세트를 적용할 때 Herdr의 자동 테마 전환을 끕니다.
+
+Ghostty 설정 끝에는 색상 파일을 불러오는 별도 관리 블록만 추가합니다. Herdr는 테마 이름·자동 전환·지정된 색상 항목만 수정합니다. 글꼴·단축키·플러그인·세션 설정은 보존하며, `HERDR_CONFIG_PATH`와 XDG 경로를 지원합니다. 앱이 아직 설치되지 않았더라도 설정 파일을 준비할 수 있습니다. 실행 중인 앱에는 설정 재적용을 시도하며, 앱이나 세션에 연결할 수 없으면 다음 실행부터 적용됩니다.
+
+색상 세트만 복원하려면 `./glass apps-restore`를 실행하세요. Noctalia 팔레트 선택과 앱별 관리 항목을 최초 적용 직전 값으로 되돌리고, 이후 수정한 다른 항목은 유지합니다. 광학 프로필까지 복원하려면 그다음 `./glass restore`를 실행하세요. 기존에 같은 이름의 팔레트나 생성 파일이 있었다면 백업한 원본을 복구합니다.
+
+Umbriel의 단축키 가이드(`cheatsheet-toggle`)는 `.4`부터 반투명 배경 뒤에 실제 블러·굴절 노드를 사용합니다. 일반 창·레이어 규칙이 적용되지 않는 내부 화면이므로 별도로 처리하며, 뒤쪽 창까지 블러 처리하고 전경 글자는 그대로 그립니다. 바이너리 업데이트는 다음 Umbriel 로그인부터 반영됩니다.
 
 ## 파일과 백업
 
@@ -106,11 +121,13 @@ GPD WIN mini에서는 저장소를 복제한 뒤 **그 기기에서 빌드·설�
 ```sh
 meson test -C .build/umbriel/build --print-errorlogs
 .venv/bin/python tests/theme_test.py
+.venv/bin/python tests/app_theme_test.py
 # 추가 테스트 도구: grim, wtype, python-pillow, dbus
 ./tests/render.sh
 /usr/bin/python3 tests/noctalia_smoke.py
 GLASS_TEST_PROFILE=dark /usr/bin/python3 tests/noctalia_smoke.py
 /usr/bin/python3 tests/window_render.py
+/usr/bin/python3 tests/cheatsheet_render.py
 ```
 
 실제 GPU를 사용하는 별도 headless Wayland 세션에서 합성 배경/알파 카드로 굴절·색 분산, 전경 글자 유지, 효과 해제 시 원본 복귀를 검사합니다. 라이브/캐시 블러, 150% 배율, 90도 회전을 포함합니다. Noctalia 스모크 테스트는 임시 설정과 별도 세션 버스에서 바·독·런처·독립형 대시보드를 실행하고 방향키 탐색, Escape/재열기 및 내부 카드 굴절을 검사합니다. 테스트 이미지와 로그는 Git에서 제외된 `artifacts/`에 저장됩니다.
