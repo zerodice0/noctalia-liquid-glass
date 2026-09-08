@@ -2,14 +2,8 @@
 background_opacity = 0.8
 background_opacity_cells = false
 
-[noctalia.shell]
-corner_radius_scale = 0.5
-
 [noctalia.shell.panel]
 transparency_mode = "glass"
-control_center_placement = "attached"
-wallpaper_placement = "attached"
-session_placement = "attached"
 borders = true
 shadow = true
 
@@ -17,29 +11,11 @@ shadow = true
 background_opacity = 1.0
 border = "outline"
 border_width = 0.0
-concave_edge_corners = true
-margin_edge = 0
-margin_ends = 100
-radius = 12
-radius_top_left = 12
-radius_top_right = 12
-radius_bottom_left = 12
-radius_bottom_right = 12
 
 [noctalia.dock]
-enabled = true
 background_opacity = 0.7999999523162842
 border = "primary"
 border_width = 0.5
-concave_edge_corners = true
-margin_edge = 0
-radius = 16
-radius_top_left = 16
-radius_top_right = 16
-radius_bottom_left = 16
-radius_bottom_right = 16
-icon_size = 48
-magnification = true
 
 [noctalia.notification]
 background_opacity = 0.9700000286102295

@@ -2,6 +2,8 @@
 """Run real Noctalia in a private compositor, D-Bus, and settings directory."""
 import json
 import os
+import re
+import shutil
 from pathlib import Path
 import signal
 import subprocess
@@ -90,6 +92,21 @@ auto_locate = false
         'base=tomlkit.load(open(sys.argv[2])).unwrap(); '
         'print(tomlkit.dumps(merge(base,tomlkit.parse(sys.stdin.read()).unwrap())))',
         str(ROOT / "scripts"), str(shell_config / "00-base.toml")], input=theme, text=True)
+    # Exercise the requested optical profile, not a fixed desktop shader setup.
+    optics = json.loads(subprocess.check_output([str(ROOT / ".venv/bin/python"), "-c",
+        'import json,sys; sys.path.insert(0,sys.argv[1]); from theme import profile; '
+        'print(json.dumps(profile(sys.argv[2])["umbriel"]["appearance"]["blur"]))',
+        str(ROOT / "scripts"), PROFILE], text=True))
+    compositor_text = config.read_text()
+    for key in ("passes", "radius", "glass_strength", "glass_edge", "glass_dispersion", "glass_highlight"):
+        compositor_text = re.sub(rf"(?m)^{key} = .*", f"{key} = {optics[key]}", compositor_text)
+    config.write_text(compositor_text)
+    test_strength = float(optics["glass_strength"])
+    if os.environ.get("GLASS_TEST_PALETTE"):
+        (shell_config / "palettes").mkdir()
+        shutil.copyfile(os.environ["GLASS_TEST_PALETTE"], shell_config / "palettes/glass-test.json")
+        combined = re.sub(r'(?m)^source = "builtin"$', 'source = "custom"', combined)
+        combined = combined.replace('[theme]\n', '[theme]\ncustom_palette = "glass-test"\n')
     (shell_config / "00-base.toml").unlink()
     (shell_config / "config.toml").write_text(combined)
     subprocess.run([SHELL, "config", "validate"], env=env, check=True)
@@ -148,14 +165,14 @@ auto_locate = false
         subprocess.run([SHELL, "msg", "panel-open", "control-center"], env=env, check=True, capture_output=True)
         time.sleep(0.5)
         subprocess.run(["grim", str(artifacts / "control-glass.png")], env=env, check=True)
-        config.write_text(config.read_text().replace("glass_strength = 38.0", "glass_strength = 0.0"))
+        config.write_text(config.read_text().replace(f"glass_strength = {test_strength}", "glass_strength = 0.0"))
         subprocess.run([str(binary), "msg", "config-reload"], env=env, check=True, capture_output=True)
         time.sleep(0.3)
         subprocess.run(["grim", str(artifacts / "control-frosted.png")], env=env, check=True)
         # Interior cards, excluding the outer panel rim and the sidebar.
         diff = ImageChops.difference(Image.open(artifacts / "control-glass.png").convert("RGB"), Image.open(artifacts / "control-frosted.png").convert("RGB")).crop((435,115,915,545))
         assert sum(any(v) for v in diff.get_flattened_data()) > 1000, "No internal card refraction"
-        config.write_text(config.read_text().replace("glass_strength = 0.0", "glass_strength = 38.0"))
+        config.write_text(config.read_text().replace("glass_strength = 0.0", f"glass_strength = {test_strength}"))
         subprocess.run([str(binary), "msg", "config-reload"], env=env, check=True, capture_output=True)
         subprocess.run([SHELL, "msg", "panel-open", "launcher"], env=env, check=True, capture_output=True)
         time.sleep(1.0)
@@ -163,7 +180,7 @@ auto_locate = false
         assert state["activePanelId"] == "launcher", state
         subprocess.run(["grim", str(artifacts / "noctalia-glass.png")], env=env, check=True)
         # Capture the identical live shell with refraction disabled for comparison.
-        config.write_text(config.read_text().replace("glass_strength = 38.0", "glass_strength = 0.0"))
+        config.write_text(config.read_text().replace(f"glass_strength = {test_strength}", "glass_strength = 0.0"))
         subprocess.run([str(binary), "msg", "config-reload"], env=env, check=True, capture_output=True)
         time.sleep(0.3)
         subprocess.run(["grim", str(artifacts / "noctalia-frosted.png")], env=env, check=True)

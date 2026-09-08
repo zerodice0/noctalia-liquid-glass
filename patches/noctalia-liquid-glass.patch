@@ -78,3 +78,78 @@ index 91f267e..783e6da 100644
      const auto mode =
          configService != nullptr ? configService->config().shell.panel.transparencyMode : PanelTransparencyMode::Solid;
      return panelCardOpacityForTransparencyMode(mode, panelBackgroundOpacity);
+diff --git a/src/theme/theme_service.cpp b/src/theme/theme_service.cpp
+index 9572e5c..bec257d 100644
+--- a/src/theme/theme_service.cpp
++++ b/src/theme/theme_service.cpp
+@@ -199,7 +199,10 @@ namespace noctalia::theme {
+       const GeneratedPalette generated = expandBuiltinPalette(bp);
+       return {
+           .generated = generated,
+-          .palette = mapGeneratedPaletteMode(shellMode == "light" ? generated.light : generated.dark),
++          // Template token expansion is RGB-only. Keep the explicit shell RGBA
++          // and hover roles of fixed palettes instead of round-tripping through it.
++          // Accessibility transforms below still deliberately rebuild an opaque palette.
++          .palette = shellMode == "light" ? parsed.light.palette : parsed.dark.palette,
+           .mode = std::string(mode),
+           .shellMode = std::string(shellMode),
+       };
+diff --git a/tests/theme_shell_mode_test.cpp b/tests/theme_shell_mode_test.cpp
+index 815d28f..0864396 100644
+--- a/tests/theme_shell_mode_test.cpp
++++ b/tests/theme_shell_mode_test.cpp
+@@ -7,6 +7,10 @@
+ #include "net/http_client.h"
+ #include "tests/test_check.h"
+ #include "theme/theme_service.h"
++#include "theme/builtin_palettes.h"
++#include "theme/custom_palettes.h"
++#include <nlohmann/json.hpp>
++#include <cmath>
+ 
+ #include <cstdlib>
+ #include <filesystem>
+@@ -21,6 +25,7 @@ namespace {
+     std::string appliedMode; // mode handed to the resolved callback
+     std::string mode;        // ThemeService::resolvedMode()
+     std::string shellMode;   // ThemeService::resolvedShellMode()
++    Palette rendered;
+     bool shellLight = false; // ThemeService::isLightMode()
+   };
+ 
+@@ -46,6 +51,7 @@ namespace {
+     result.mode = std::string(theme.resolvedMode());
+     result.shellMode = std::string(theme.resolvedShellMode());
+     result.shellLight = theme.isLightMode();
++    result.rendered = palette;
+     return result;
+   }
+ 
+@@ -101,6 +107,27 @@ int main() {
+     TEST_CHECK(r.appliedMode == "dark");
+   }
+ 
++  // Fixed-palette alpha and explicit hover colors must reach the renderer.
++  {
++    using namespace noctalia::theme;
++    TEST_CHECK(saveCustomPaletteFromGenerated("glass-alpha", expandBuiltinPalette(*findBuiltinPalette("Noctalia"))));
++    const auto path = customPalettePath("glass-alpha");
++    nlohmann::json doc;
++    { std::ifstream in(path); in >> doc; }
++    doc["dark"]["mPrimary"] = "#88BBDDA0";
++    doc["dark"]["mHover"] = "#DDEEFF38";
++    doc["light"]["mPrimary"] = "#225588C0";
++    { std::ofstream out(path); out << doc; }
++    const auto dark = resolve(overrides, "[theme]\nmode = \"dark\"\nsource = \"custom\"\ncustom_palette = \"glass-alpha\"\n");
++    TEST_CHECK(std::abs(dark.rendered.primary.a - 160.0F / 255.0F) < 0.001F);
++    TEST_CHECK(std::abs(dark.rendered.hover.a - 56.0F / 255.0F) < 0.001F);
++    TEST_CHECK(std::abs(dark.rendered.hover.r - 221.0F / 255.0F) < 0.001F);
++    TEST_CHECK(dark.rendered.onPrimary.a == 1.0F);
++    const auto light = resolve(overrides, "[theme]\nmode = \"light\"\nsource = \"custom\"\ncustom_palette = \"glass-alpha\"\n");
++    TEST_CHECK(std::abs(light.rendered.primary.a - 192.0F / 255.0F) < 0.001F);
++    const auto contrast = resolve(overrides, "[theme]\nmode = \"dark\"\nsource = \"custom\"\ncustom_palette = \"glass-alpha\"\n[accessibility]\nhigh_contrast = true\n");
++    TEST_CHECK(contrast.rendered.primary.a == 1.0F);
++  }
+   std::filesystem::remove_all(root);
+   return 0;
+ }

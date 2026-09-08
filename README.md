@@ -50,7 +50,7 @@ systemctl --user show umbriel.service -p ExecStart
 ./glass status
 ```
 
-두 설치 버전에는 `+liquid-glass.2`가 들어가고, 실행 중 프로세스 경로도 위 runtime 바이너리여야 합니다. Umbriel 바이너리 또는 설정 검증이 실패하면 런처는 패키지 Umbriel로 돌아갑니다. 실행 도중 GPU 오류까지 자동 복구하는 기능은 아닙니다. 기존 autostart의 정확히 `noctalia`인 항목만 새 셸 런처로 교체합니다. 다른 방식으로 셸을 시작하는 기기는 `~/.local/bin/noctalia-liquid-glass`를 사용하도록 별도 설정해야 합니다.
+설치 버전은 Umbriel `+liquid-glass.3`, Noctalia `+liquid-glass.2`이며, 실행 중 프로세스 경로도 위 runtime 바이너리여야 합니다. Umbriel 바이너리 또는 설정 검증이 실패하면 런처는 패키지 Umbriel로 돌아갑니다. 실행 도중 GPU 오류까지 자동 복구하는 기능은 아닙니다. 기존 autostart의 정확히 `noctalia`인 항목만 새 셸 런처로 교체합니다. 다른 방식으로 셸을 시작하는 기기는 `~/.local/bin/noctalia-liquid-glass`를 사용하도록 별도 설정해야 합니다.
 
 ## 프리셋 전환과 복구
 
@@ -60,16 +60,21 @@ Ghostty는 적용/복구 후 `Ctrl+Shift+,`로 설정을 다시 읽으세요. �
 
 | 명령 | 용도 |
 | --- | --- |
+| `./glass apply glass-dark` | 선명한 모서리 굴절, 낮은 색 분산, Ghostty 배경 불투명도 38% |
 | `./glass apply dark` | 확정된 낮은 불투명도의 다크 테마 |
 | `./glass apply light` | 밝은 바탕과 낮은 불투명도의 라이트 테마 |
 | `./glass apply gpd-dark` / `gpd-light` | 해당 모드의 경량 GPD 프리셋 |
 | `./glass apply frosted-dark` / `frosted-light` | 해당 모드에서 굴절 끄기 |
 | `./glass apply desktop` | 실시간 배경, 강한 가장자리 굴절과 색 분산 |
-| `./glass apply gpd` | 1패스 블러, 셸 배경 캐시, 색 분산 끄기, 작은 독 |
+| `./glass apply gpd` | 1패스 블러, 셸 배경 캐시, 색 분산 끄기 |
 | `./glass apply frosted` | 같은 레이아웃에서 굴절 없이 블러만 사용 |
 | `./glass apply original` | 저장된 원래 외형 프리셋; 커스텀 런타임은 유지 |
 | `./glass save my-theme` | 현재 외형 중 관리 대상 항목만 새 프리셋으로 저장 |
 | `./glass restore` | 이 기기의 최초 적용 전 외형과 세션 실행 명령으로 복구 |
+
+bar·dock에서는 배경 불투명도와 테두리 색상·두께만 관리합니다. 크기·간격·모서리 반경·활성화·확대 효과와 패널 배치는 현재 사용자 설정을 유지합니다. 이전 버전의 프로필이나 복구 기록에 남은 해당 설정도 무시하므로, `apply`·모드 전환·`restore`가 개인 배치를 되돌리지 않습니다.
+
+이미 Noctalia 설정에 저장된 개별 모서리 값은 그대로 유지됩니다. 전체 반지름을 바꿔도 반영되지 않으면 `radius_top_left`, `radius_top_right`, `radius_bottom_left`, `radius_bottom_right`의 개별 지정을 해제하세요. 화면 가장자리와 이어지는 곡선은 `margin_edge = 0`이고 `concave_edge_corners = true`일 때 표시됩니다.
 
 패치된 세션에서 프리셋 전환은 설정 감시로 반영됩니다. `restore` 후 패키지 바이너리로의 전환은 다음 로그인에 이뤄집니다. 현재 실행 중인 패치가 읽을 수 있도록 원래 설정만 include하는 작은 설정 파일을 남깁니다. 원래 파일과 다른 무관한 폰트·배경화면 변경은 유지하며, 테마가 관리한 항목은 적용 전 값으로 돌립니다.
 

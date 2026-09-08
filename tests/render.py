@@ -11,9 +11,9 @@ import time
 from PIL import Image, ImageChops
 
 ROOT = Path(__file__).resolve().parents[1]
-BINARY = ROOT / ".build/umbriel/build/umbriel"
+BINARY = Path(os.environ.get("GLASS_TEST_BINARY", ROOT / ".build/umbriel/build/umbriel"))
 CLIENT = ROOT / ".build/tests/glass-client"
-ARTIFACTS = ROOT / "artifacts"
+ARTIFACTS = Path(os.environ.get("GLASS_TEST_ARTIFACTS", ROOT / "artifacts"))
 ARTIFACTS.mkdir(exist_ok=True)
 
 
@@ -21,7 +21,7 @@ def pixels(image):
     return image.get_flattened_data() if hasattr(image, "get_flattened_data") else image.getdata()
 
 
-def run_case(optimized, scale=1, transform="normal"):
+def run_case(optimized, scale=1, transform="normal", tuned=False):
     with tempfile.TemporaryDirectory(prefix="glass-render-") as directory:
         temp = Path(directory)
         env = dict(os.environ)
@@ -29,7 +29,7 @@ def run_case(optimized, scale=1, transform="normal"):
             env.pop(key, None)
         env.update(XDG_RUNTIME_DIR=str(temp), WLR_BACKENDS="headless", WLR_HEADLESS_OUTPUTS="1", WLR_LIBINPUT_NO_DEVICES="1")
         config = temp / "config.toml"
-        def configure(strength):
+        def configure(strength, highlight=None):
             config.write_text(f'''[general]
 xwayland = false
 show_cheatsheet = false
@@ -42,16 +42,16 @@ transform = "{transform}"
 [appearance.blur]
 enabled = true
 optimized = {str(optimized).lower()}
-passes = 1
-radius = 1
+passes = {2 if tuned else 1}
+radius = {7 if tuned else 1}
 noise = 0.0
 brightness = 1.0
 contrast = 1.0
 saturation = 1.0
 glass_strength = {strength:.1f}
-glass_edge = 52.0
-glass_dispersion = 0.20
-glass_highlight = 0.0
+glass_edge = {28.0 if tuned else 52.0}
+glass_dispersion = {0.035 if tuned else 0.20}
+glass_highlight = {highlight if highlight is not None else (0.32 if tuned else 0.0)}
 [[layer_rule]]
 match.namespace = "^glass-test-card$"
 blur = true
@@ -86,16 +86,16 @@ blur_optimized = {str(optimized).lower()}
                     time.sleep(0.03)
                 else:
                     raise AssertionError(f"{name}: " + (temp / f"{name}.log").read_text())
-            label = f'{"cached" if optimized else "live"}-{scale}-{transform}'
-            def capture(name, strength):
-                configure(strength)
+            label = f'{"cached" if optimized else "live"}-{scale}-{transform}' + ("-tuned" if tuned else "")
+            def capture(name, strength, highlight=None):
+                configure(strength, highlight)
                 subprocess.run([str(BINARY), "msg", "config-reload"], env=env, check=True, capture_output=True)
                 time.sleep(0.30)
                 file = ARTIFACTS / f"{label}-{name}.png"
                 subprocess.run(["grim", str(file)], env=env, check=True)
                 return Image.open(file).convert("RGB")
             before = capture("off", 0)
-            after = capture("on", 48)
+            after = capture("on", 24 if tuned else 48)
             restored = capture("restored", 0)
             diff = ImageChops.difference(before, after)
             changed = sum(any(p) for p in pixels(diff))
@@ -111,6 +111,17 @@ blur_optimized = {str(optimized).lower()}
             if scale == 1 and transform == "normal":
                 for box in ((0, 0, 1280, 155), (0, 510, 1280, 720), (245, 170, 270, 480)):
                     assert diff.crop(box).getbbox() is None, "Glass leaked outside its alpha mask"
+            if tuned:
+                # Center keeps its original blur, while the rounded rim must
+                # carry visible lensing and directional light/shade.
+                center = (400, 250, 680, 290)
+                assert diff.crop(center).getbbox() is None, "Rim optics altered the panel center"
+                corner = (280, 200, 335, 255)
+                assert sum(any(p) for p in pixels(diff.crop(corner))) > 100, "Rounded corner did not refract"
+                unlit = capture("unlit", 24, 0.0)
+                light_diff = ImageChops.difference(after, unlit)
+                assert light_diff.crop(center).getbbox() is None, "Edge lighting leaked into center"
+                assert sum(any(p) for p in pixels(light_diff.crop(corner))) > 50, "Missing curved rim lighting"
             log = (temp / "compositor.log").read_text()
             assert "Could not link" not in log and "GL_INVALID" not in log, log
             result = {"mode": label, "changed_pixels": changed, "unchanged_foreground_pixels": len(foreground), "chromatic_pixels": color_split}
@@ -134,6 +145,6 @@ blur_optimized = {str(optimized).lower()}
 
 
 if __name__ == "__main__":
-    results = [run_case(False), run_case(True), run_case(False, 1.5), run_case(False, 1, "90")]
+    results = [run_case(False), run_case(True), run_case(False, 1.5), run_case(False, 1, "90"), run_case(False, tuned=True)]
     (ARTIFACTS / "render-results.json").write_text(json.dumps(results, indent=2))
     print("PASS: live and cached blur, fractional scaling, rotation, masks, foreground, and reversible toggle.")

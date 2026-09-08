@@ -79,6 +79,17 @@ def read_toml(path):
     return tomlkit.parse(path.read_text()) if path.exists() else tomlkit.document()
 
 
+def managed_noctalia_path(path):
+    """Material profiles leave shell geometry and interaction preferences alone."""
+    if path[0] in ("bar", "dock"):
+        return path[-1] in ("background_opacity", "border", "border_width")
+    if path == ("shell", "corner_radius_scale"):
+        return False
+    if path[:2] == ("shell", "panel") and path[-1].endswith("_placement"):
+        return False
+    return True
+
+
 def profile(name, seen=()):
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]*", name) or name in seen:
         raise ValueError("Invalid profile name or inheritance cycle")
@@ -86,7 +97,12 @@ def profile(name, seen=()):
     if not data:
         raise ValueError(f"Profile not found: {name}")
     parent = data.pop("extends", None)
-    return merge(profile(parent, (*seen, name)) if parent else {}, data)
+    result = merge(profile(parent, (*seen, name)) if parent else {}, data)
+    # Also retire layout overrides from previously saved custom profiles.
+    for path, _ in list(leaves(result.get("noctalia", {}))):
+        if not managed_noctalia_path(path):
+            put(result["noctalia"], path, {"exists": False})
+    return result
 
 
 def resolve_umbriel(path, seen=None):
@@ -160,6 +176,14 @@ class Theme:
         if not self.ghostty.exists():
             self.ghostty = self.config / "ghostty/config"
 
+    def read_baseline(self):
+        baseline = json.loads(self.baseline.read_text())
+        # Old installations tracked layout too. Never restore those old values,
+        # even on the first apply/restore after upgrading the manager.
+        baseline["keys"] = [item for item in baseline["keys"]
+                            if managed_noctalia_path(tuple(item["path"]))]
+        return baseline
+
     def candidates(self, name, configured_mode=None):
         selected = profile(name)
         if configured_mode is not None:
@@ -177,7 +201,7 @@ class Theme:
                 {"exists": True, "value": template_config})
         settings = read_toml(self.settings)
         if self.baseline.exists():
-            for item in json.loads(self.baseline.read_text())["keys"]:
+            for item in self.read_baseline()["keys"]:
                 put(settings, tuple(item["path"]), item["before"])
         for path, value in leaves(selected["noctalia"]):
             put(settings, path, {"exists": True, "value": value})
@@ -319,7 +343,9 @@ class Theme:
         if dry_run:
             print("Validation passed; no active configuration changed.")
             return
-        folder, records = self.backup(writes)
+        folder, records = self.backup([*writes, self.baseline])
+        # Retain pre-migration metadata in the backup, not in files to restore.
+        records.pop(str(self.baseline))
         if not self.baseline.exists():
             original = read_toml(self.settings)
             # Union of all built-in profile keys makes switching lossless.
@@ -331,7 +357,7 @@ class Theme:
                         "keys": [{"path": list(path), "before": get(original, path)} for path in sorted(paths)],
                         "files": {key: value for key, value in records.items() if key not in (str(self.settings), str(self.ghostty))}}
         else:
-            baseline = json.loads(self.baseline.read_text())
+            baseline = self.read_baseline()
             known = {tuple(item["path"]) for item in baseline["keys"]}
             # Migrate older installations: snapshot newly managed fields before
             # their first write, without replacing the original baseline.
@@ -386,7 +412,7 @@ class Theme:
     def restore(self):
         if not self.baseline.exists():
             raise ValueError("No installed theme baseline to restore")
-        baseline = json.loads(self.baseline.read_text())
+        baseline = self.read_baseline()
         settings = read_toml(self.settings)
         for item in baseline["keys"]:
             put(settings, tuple(item["path"]), item["before"])

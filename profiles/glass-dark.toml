@@ -1,0 +1,50 @@
+extends = "gpd-dark"
+# Keep this tuned material stable when color templates are regenerated.
+mode_family = "glass"
+mode_variant = "dark"
+
+[noctalia.shell.panel]
+glass_background_opacity = 0.32
+glass_card_opacity = 0.12
+
+[noctalia.bar.default]
+background_opacity = 0.26
+border = "#E4EBF24D"
+border_width = 0.6
+
+[noctalia.dock]
+background_opacity = 0.24
+border = "#E4EBF25C"
+border_width = 0.6
+
+[noctalia.notification]
+background_opacity = 0.48
+
+[noctalia.osd]
+background_opacity = 0.42
+
+[umbriel.appearance.blur]
+optimized = false
+passes = 2
+radius = 7
+noise = 0.003
+saturation = 1.04
+glass_strength = 24.0
+glass_edge = 28.0
+glass_dispersion = 0.035
+glass_highlight = 0.32
+
+[[umbriel.layer_rule]]
+match.namespace = '^noctalia-(bar-.*|notification|dock|panel|attached-panel|osd|desktop-widget-.*)$'
+blur = true
+blur_ignore_alpha = 0.10
+blur_optimized = false
+
+[material]
+background_opacity = 0.32
+border_opacity = 0.45
+outer_border_opacity = 0.14
+workspace_opacity = 0.22
+
+[apps.ghostty]
+background_opacity = 0.38

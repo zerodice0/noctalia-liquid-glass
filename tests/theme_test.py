@@ -62,7 +62,7 @@ class ThemeTests(unittest.TestCase):
                 self.assertEqual(rules[0]["match"]["namespace"], "^existing$")
                 theme.apply("gpd")
                 self.assertIn("background-opacity = 0.76", theme.ghostty.read_text())
-                self.assertFalse(module.read_toml(theme.settings)["dock"]["magnification"])
+                self.assertNotIn("magnification", module.read_toml(theme.settings)["dock"])
                 theme.apply("desktop")
                 self.assertNotIn("magnification", module.read_toml(theme.settings)["dock"])
                 theme.apply("original")
@@ -100,6 +100,71 @@ class ThemeTests(unittest.TestCase):
             self.assertTrue(link.is_symlink())
             self.assertEqual(target.read_text(), "new")
 
+    def test_legacy_layout_records_preserve_current_preferences_on_apply_and_restore(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(temp / "config"),
+                                         "XDG_STATE_HOME": str(temp / "state"),
+                                         "NOCTALIA_STATE_HOME": str(temp / "state"),
+                                         "GLASS_NO_RELOAD": "1"}):
+                theme = module.Theme()
+                theme.launcher = temp / "bin/umbriel-liquid-glass"
+                theme.shell_launcher = temp / "bin/noctalia-liquid-glass"
+                theme.base = temp / "config/umbriel/config.toml"
+                theme.base.parent.mkdir(parents=True)
+                theme.base.write_text('[general]\nautostart = []\n')
+                theme.settings.parent.mkdir(parents=True)
+                preferences = {
+                    "bar": {"default": {"margin_ends": 31, "radius": 9, "position": "bottom"},
+                            "secondary": {"radius": 7, "enabled": False}},
+                    "dock": {"icon_size": 20, "margin_edge": 2, "magnification": True, "enabled": False},
+                    "shell": {"corner_radius_scale": 0.8, "panel": {"control_center_placement": "attached"}},
+                }
+                theme.settings.write_text(tomlkit.dumps(preferences))
+                legacy = [{"path": list(path), "before": {"exists": True, "value": 999}}
+                          for path, _ in module.leaves(preferences)]
+                # A formerly absent key must not delete a current preference;
+                # a formerly present key must not reappear in current settings.
+                legacy[0]["before"] = {"exists": False}
+                legacy.append({"path": ["dock", "radius"], "before": {"exists": True, "value": 22}})
+                theme.state.mkdir(parents=True, exist_ok=True)
+                theme.baseline.write_text(json.dumps({"keys": legacy, "files": {}}))
+                with patch.object(theme, "validate"):
+                    original = theme.settings.read_text()
+                    theme.apply("glass-dark", dry_run=True)
+                    self.assertEqual(theme.settings.read_text(), original)
+                    self.assertEqual(json.loads(theme.baseline.read_text())["keys"], legacy)
+                    for name in ("glass-dark", "gpd-dark", "original"):
+                        theme.apply(name)
+                        current = module.read_toml(theme.settings)
+                        for path, value in module.leaves(preferences):
+                            self.assertEqual(module.get(current, path)["value"], value)
+                        self.assertNotIn("radius", current["dock"])
+                        self.assertFalse(any(item in legacy for item in json.loads(theme.baseline.read_text())["keys"]))
+                    # Direct restore must also handle an unmigrated baseline.
+                    baseline = json.loads(theme.baseline.read_text())
+                    baseline["keys"].extend(legacy)
+                    theme.baseline.write_text(json.dumps(baseline))
+                    theme.restore()
+                restored = module.read_toml(theme.settings)
+                for path, value in module.leaves(preferences):
+                    self.assertEqual(module.get(restored, path)["value"], value)
+                self.assertNotIn("radius", restored["dock"])
+                self.assertNotIn("background_opacity", restored["dock"])
+
+    def test_saved_legacy_profile_does_not_reintroduce_layout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            (temp / "profiles").mkdir()
+            (temp / "profiles/legacy.toml").write_text(
+                '[noctalia.dock]\nicon_size = 48\nbackground_opacity = 0.3\n'
+                '[noctalia.bar.secondary]\nradius = 12\nborder_width = 0.6\n')
+            with patch.object(module, "REPO", temp):
+                self.assertEqual(module.profile("legacy")["noctalia"], {
+                    "dock": {"background_opacity": 0.3},
+                    "bar": {"secondary": {"border_width": 0.6}},
+                })
+
     def test_source_installed_fallback_paths(self):
         with patch.object(module.shutil, "which", side_effect=lambda name: f"/usr/local/bin/{name}"):
             theme = module.Theme()
@@ -115,6 +180,9 @@ class ThemeTests(unittest.TestCase):
             self.assertNotIn("keybinds", data["umbriel"])
             self.assertNotIn("wallpaper", data["noctalia"])
             self.assertNotIn("plugins", data["noctalia"])
+            raw = module.read_toml(file).get("noctalia", {})
+            for path, _ in module.leaves(raw):
+                self.assertTrue(module.managed_noctalia_path(path), (name, path))
 
     def test_approved_dark_opacity(self):
         data = module.profile("dark")

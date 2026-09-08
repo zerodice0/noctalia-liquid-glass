@@ -1,11 +1,6 @@
 extends = "light"
 mode_family = "gpd"
 
-[noctalia.dock]
-icon_size = 36
-magnification = false
-margin_edge = 6
-
 [umbriel.appearance.blur]
 optimized = true
 passes = 1
