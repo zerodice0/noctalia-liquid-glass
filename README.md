@@ -11,6 +11,7 @@ Noctalia **native 5.0.1 + Umbriel**용 실험적 Liquid Glass. 반투명 테마�
 - 기준: Noctalia 5.0.1, Umbriel `fd73faef31d53b3336e9407d67a4962855bb6d1a`, wlroots **0.20.x**, OpenGL ES.
 - Arch/CachyOS의 `umbriel.service` 사용자 세션을 전제로 합니다. Hyprland/Niri/KWin 및 이전 Quickshell 기반 Noctalia에서는 이 설치 절차를 사용하지 마세요.
 - 시스템 `/usr/bin/umbriel`, `/usr/bin/noctalia`는 덮어쓰지 않습니다. 사용자 디렉터리에 별도 바이너리를 설치합니다.
+- 원래 실행 파일을 PATH에서 찾아 런처의 복구 경로로 보관하므로 `/usr/local/bin/umbriel` 설치도 지원합니다. 기존 systemd 사용자 세션이 필요합니다.
 - 일반 창 기본값은 블러 + 92% 불투명도입니다. 기존 기기별 창 규칙이 기본값보다 우선합니다. 배경만 투명하게 할 수 없는 앱은 글자·이미지도 8% 투명해지는 절충안입니다.
 - Ghostty는 창 전체 불투명도 100%, 배경만 `dark` 55%, `light` 60%로 설정하고 명시적 셀 배경에도 투명도를 적용합니다. 폰트·키 바인딩은 유지하고 색상은 기존 Noctalia 테마 동기화를 따릅니다. 기존 Ghostty 설정 파일이 있는 기기에만 적용합니다.
 - 독립형 대시보드를 유지하면서 열릴 때 키보드 포커스를 요청합니다. 패널과 내부 카드의 알파를 별도 조절하며, Umbriel 패치는 알파 경계 기반 내부 카드 굴절 및 overview 작업공간 배경 효과를 추가합니다. 모든 위젯에 독립적인 광학 표면을 제공하는 방식은 아닙니다.

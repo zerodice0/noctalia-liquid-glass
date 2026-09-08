@@ -46,6 +46,10 @@ class ThemeTests(unittest.TestCase):
                 theme.apply("desktop")
                 self.assertIn("liquid_glass", module.read_toml(theme.settings)["theme"]["templates"]["user"])
                 self.assertTrue(theme.material_template.exists())
+                self.assertIn('colors.primary.default.hex_stripped', theme.material_template.read_text())
+                palette = module.resolve_umbriel(theme.overlay)['colors']
+                self.assertEqual(palette['accent_primary'], '#B9C3FFFF')
+                self.assertEqual(palette['overview']['badge'], '#B9C3FFFF')
                 self.assertEqual(module.resolve_umbriel(theme.overlay)["colors"]["background"][-2:], "47")
                 self.assertIn("background-opacity = 0.68", theme.ghostty.read_text())
                 window_rules = module.resolve_umbriel(theme.overlay)["window_rule"]
@@ -95,6 +99,12 @@ class ThemeTests(unittest.TestCase):
             module.atomic(link, "new")
             self.assertTrue(link.is_symlink())
             self.assertEqual(target.read_text(), "new")
+
+    def test_source_installed_fallback_paths(self):
+        with patch.object(module.shutil, "which", side_effect=lambda name: f"/usr/local/bin/{name}"):
+            theme = module.Theme()
+            self.assertEqual(theme.fallback_binary, Path('/usr/local/bin/umbriel'))
+            self.assertEqual(theme.fallback_shell, Path('/usr/local/bin/noctalia'))
 
     def test_profiles_contain_no_machine_configuration(self):
         for file in (ROOT / "profiles").glob("*.toml"):

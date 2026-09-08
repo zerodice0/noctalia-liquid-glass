@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 import tempfile
 
@@ -145,6 +146,9 @@ class Theme:
         self.prefix = Path(os.environ.get("GLASS_PREFIX", data / "noctalia-liquid-glass/runtime"))
         self.binary = self.prefix / "bin/umbriel"
         self.shell_binary = self.prefix / "bin/noctalia"
+        # Source-installed sessions may live in /usr/local rather than /usr.
+        self.fallback_binary = Path(shutil.which("umbriel") or "/usr/bin/umbriel").resolve()
+        self.fallback_shell = Path(shutil.which("noctalia") or "/usr/bin/noctalia").resolve()
         self.shell_launcher = home / ".local/bin/noctalia-liquid-glass"
         self.material_colors = self.config / "noctalia-liquid-glass/colors.toml"
         self.material_template = self.config / "noctalia-liquid-glass/colors.template.toml"
@@ -202,7 +206,7 @@ class Theme:
                     '  exec "$binary" -c "$config" "$@"\n'
                     'fi\n'
                     "echo 'Liquid Glass runtime unavailable; starting packaged Umbriel.' >&2\n"
-                    'exec /usr/bin/umbriel "$@"\n')
+                    f'exec {shlex.quote(str(self.fallback_binary))} "$@"\n')
         service_path = str(self.launcher).replace("%", "%%").replace('"', '\\"')
         service = f'[Service]\nExecStart=\nExecStart="{service_path}"\n'
         writes = {
@@ -213,7 +217,7 @@ class Theme:
             self.shell_launcher: ("#!/bin/sh\n"
                 f"if [ -x {shlex.quote(str(self.shell_binary))} ]; then\n"
                 f"  exec {shlex.quote(str(self.shell_binary))} \"$@\"\nfi\n"
-                'exec /usr/bin/noctalia "$@"\n'),
+                f'exec {shlex.quote(str(self.fallback_shell))} "$@"\n'),
             **extra_writes,
         }
         if self.ghostty.exists():
@@ -236,16 +240,29 @@ class Theme:
         # or user Umbriel templates writing umbriel/noctalia.toml.
         specs = {
             ("background",): ("surface_container", "background_opacity", "#202028"),
+            # Carry the entire palette: some machines have no include of the
+            # stock Umbriel template in their base config.
+            ("text_primary",): ("on_surface", 1.0, "#E3E1E9"),
+            ("text_muted",): ("on_surface_variant", 1.0, "#C6C5D0"),
+            ("accent_primary",): ("primary", 1.0, "#B9C3FF"),
+            ("accent_secondary",): ("secondary", 1.0, "#C3C5DD"),
+            ("warning",): ("tertiary", 1.0, "#E5BAD8"),
+            ("error",): ("error", 1.0, "#FFB4AB"),
+            ("insert_hint",): ("tertiary", 0.5, "#E5BAD8"),
+            ("backdrop",): ("surface_variant", 1.0, "#46464F"),
             ("border", "focused"): ("primary", "border_opacity", "#B9C3FF"),
             ("border", "unfocused"): ("outline", "border_opacity", "#90909A"),
             ("border", "outer"): ("on_surface", "outer_border_opacity", "#E3E1E9"),
+            ("border", "scratchpad_focused"): ("tertiary", 1.0, "#E5BAD8"),
+            ("border", "scratchpad_unfocused"): ("tertiary_container", 1.0, "#5D3C55"),
             ("overview", "background_tint"): ("surface", "overview_tint_opacity", "#121318"),
             ("overview", "workspace_background"): ("surface_container", "workspace_opacity", "#202028"),
+            ("overview", "badge"): ("primary", 1.0, "#B9C3FF"),
         }
         source = resolve_umbriel(self.base).get("colors", {})
         template, initial = {}, {}
         for path, (role, alpha_key, fallback) in specs.items():
-            alpha = float(material[alpha_key])
+            alpha = float(material[alpha_key] if isinstance(alpha_key, str) else alpha_key)
             if not 0.0 <= alpha <= 1.0:
                 raise ValueError(f"Invalid material opacity: {alpha_key}")
             suffix = f"{round(alpha * 255):02X}"
